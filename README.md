@@ -5,79 +5,128 @@ The solution automates the management of Tier 0 and Tier 1 users with Kerberos A
 The user management script ensures that users are added to the protected users group and removes users from privileged groups if they are not part of the administrator OU. 
 This solution can manage Tier 0 and Tier 1 users within a single Active Directory Domain or across the entire Active Directory Forest. It utilizes scheduled tasks that run on your primary Active Directory domain, typically the Forest Root domain. 
 
-## The scripts in a nutshell
-### Install.ps1
+# The scripts in a nutshell
+## Install.ps1
 Install the solution into you Active Directory environment
 ### TierLevelComputerManagement.ps1
 Adds computer to the Kerberos Authentication claim group
 ### TierLevelUserManagement.ps1
 Applies the Kerberos Authentication Policy to the Tier Level administrators
 
-## Installation 
-The installation script establishes the necessary tiering structure within one or all Active Directory domains in your forest. It prepares the Active Directory domains to support Kerberos Armoring. 
-The final step of the installation involves creating a group policy on the Domain Controller OU to install scheduled tasks for management scripts. To install this solution, download the latest version from the GitHub repository. Depending on your PowerShell restrictions, sign the scripts if necessary. The installation commences with the install.ps1 script, which will guide you through the process. Ensure the Active Directory PowerShell module and the Group Policy Management PowerShell module are installed before starting the script.
+# Installation 
+Preparation
+Before you start installing TierLevelIsolation, there are a few preparatory steps that need to be done. Make sure you have all the necessary materials and tools on hand. 
+1.	Download the latest version of TierLevelIsolation
+2.	Classify the files as trusted (remove the "mark of the web" attribute) 
+3.	The installation process requires Enterprise Administrator permissions.
+4.	The installation can be done on a member server on which the Active Directory PowerShell modules and the Group Policy Powershell modules are installed.
+5.	(optional) After a review of the files, the files should be signed
+6.	Administration
 
-Initially, the script detects if your Active Directory has multiple domains. If there is more than one domain available, it will ask if you wish to run the solution in Multi-forest mode:
-    Do you want to enable the multi-domain-forest mode ([y]es / No):
-If the response is [y]es, tiering will be activated across the entire forest. Subsequently, you must specify the scope of your tiering by selecting Tier 0, Tier 1, or both levels:
-    Scope-Level:
-    [0] Tier-0
-    [1] Tier-1
-    [2] Tier 0 and Tier 1
-    Select which scope should be enabled (2):
+## Installation
+The installation process is started via the install.ps1 script. The installation script guides you through the configuration and creates the required resource. The install.ps1 script should be run as an enterprise administrator to avoid access issues with the Kerberos Authentication Police. 
 
-Next, define the Tier 0 Admin OU by providing the relative OU path (the domain distinguished name is not required). The script will replicate the same tiering structure across all domains.
+### Target Selection
+The script provides a list of the Active Directory domains in the current forest. Here you have to make a selection in which domains the tier-level isolation should take place.
 
-    Distinguishedname of the Tier 0 Admin OU (OU=Admins,OU=Tier 0,OU=Admin):
+### Scope Selection
+In the next step, the tier levels for which the TierLevelIsolation is to be used are defined
 
-You have the option to define multiple tiering OUs in your environment. Additionally, specify the distinguished name of the OU where your Tier 0 service accounts are located.
+## Tier 0
+### Tier 0 Administrator OU
+Here you have to specify the path in which the Tier0 administrators are stored. The path can be specified as a relative path (without the domain components e.g. OU=Admins,OU=Tier 0,OU=Admin), in which case the same OU structure will be applied in all domains. If the OU structures in the individual domains differ, this should be defined individually for each OU (e.g. OU=Admins,OU=Tier 0,OU=Admin,DC=contoso,DC=com)
+If there are Tier 0 users in different OU structures, both relative and fully qualified DN can be specified
 
-It is possible to add multiple service account OUs. Define the OU where the Tier 0 member servers are located, noting that subfolders within this OU do not need separate configuration.
+### Tier 0 Service Account OU
+This is the path where Tier 0 service accounts are stored. Tier 0 service accounts differ from user accounts in that they are not assigned a Kerberos authentication policy, even though they are in AD privileged groups. Again, multiple paths can be specified as relative DN or fully qualified DN.
 
-Provide the name of the Tier 0 Kerberos authentication policy and the name of the Active Directory group containing Tier 0 member servers. If this group does not exist, it will be created.
+### Tier 0 Server OU
+Is one or more path to the Tier 0 computer objects.
 
-For Tier 1 configuration, provide the name of the group containing Tier 1 member servers; again, the group will be created if it doesn't exist. 
-Specify the distinguished name of the Tier 1 administrators OU and define one or more OUs for Tier 1 member servers.
+### Tier 0 Kerberos Authentication Policy 
+The name of the Tier 0 Kerberos Authentication Policy. 
 
-After naming the Tier 1 Kerberos Authentication Policy, decide whether to add your administrators to the protected users group. Enabling privileged group cleanup applies only to Tier 0 users, removing users from privileged groups unless they are located in the Tier 0 administrator OU or service account OU. This ensures privileged users are always correctly grouped, excluding Built-In Administrators and GMSA accounts.
+## Tier 1
+### Tier 1 Administrator OU
+Is the realtive path where the Tier 1 Administrator accounts are stored. If the path is specified as a relative DN, the OU structure must be present in all domains. Again, multiple DistinguishedNames can be specified.
 
-In a multi-domain configuration, a group managed service account is required. The installation script will create this account. The script then copies TierLevelComputerManagement.ps1, TierLevelUserManagement.ps1, and configuration files into the SYSVOL folder (\\<domain>\SYSVOL\<domain>\scripts), and installs a group policy on the Domain Controller OU.
+### Tier 1 Service Account OU
+This setting has no function at the moment
 
-This group policy contains the scheduled tasks, which are initially disabled and must be enabled manually to prevent unintended administrator lockouts. Before enabling these tasks, ensure all member servers belong to the Tier 0 computers or Tier 1 computers group—both universal groups appearing once in the AD forest.
+### Tier 1 Server OU
+Is the absolute or relative DistinguishedName in which the server objects are stored.
+
+### Tier 1 Kerberos Authentication Policy name
+Is the name of the Tier 1 Kerberos Authentication Policy
+
+## Server Groups
+### Tier 0 Server group name
+Is the name of the computer group to be included in the Tier 0 computer. This group is created in the Standard Users container. The group should be moved to a Tier 0 managed OU
+### Tier 1 Server group name
+Is the name of the group in which the Tier 1 computers are included. This group is created in the Standard Users container. 
+### Protected Group
+This setting determines whether Tier 0 / Tier 12 users are automatically added to the Protected User group. 
+[0] All user objects stored in the Tier 0 Admin OU are automatically added to the Protected Users group
+[1] All user objects stored in the Tier 1 Admin OU are automatically added to the Protected Users group
+[2] Both Tier 0 and Tier 1 user objects are added to the Protectd Users group
+[3] Neither Tier 0 nor Tier 1 administrators will be added to the Protected Users group
+### Enable privileged group clean up
+If the answer to this question is Y, all user objects from the following groups will be removed, unless they are in the Tier 0 Admin OU, Tier 0 Service Account OU, the Built Administrator and not a GMSA.
+### Group managed service account
+In a multi-domain forest, a GMSA is needed to manage the users in the forest domains. The SAM account name must be entered here. 
+The GMSA is created on demand and added to the Enterprise Administrators group
 
 
+## Post installation tasks
+### Validate Kerberos AmoringKerberos Amoring must be active to isolate Tier 0 / Tier 1 administrators. For this purpose, the current Kerberos cache should be set with 
+KLIST PURGE 
+Delete and request a new Kerberos ticket (e.g. dir \\<domain>\SYSVOL). Afterwards, you have the requested Kerberos ticket with 
+KLIST
+Indicate. In the TGT displayed, the value "Cache Flags" should be set to 0x41 -> PRIMARY FAST
+The group policy settings for Kerberos Amoring are made only in the local domain. For all other domains in the AD-Forest, the settings must be manually completed.
 
-## Schedule task group policy
-The TierLevel Group Policy installs the following scheduled tasks on your domain controllers within the current domain:
-### Tier 0 Computer Management
-This scheduled task runs every 10 minutes by default. Its purpose is to add any computer located below the Tier 0 server OU to the Tier 0 server group.
-### Tier 1 Computer Management
-This scheduled task runs every 10 minutes by default. Its purpose is to add any computer located below the Tier 1 server OU to the Tier 1 server group.
-### Tier 0 User Management
-This scheduled task applies the Kerberos Authentication Policy to any user located below the Tier 0 administrator OU.
-### Tier 1 User Management
-This scheduled task applies the Kerberos Authentication Policy to any user located below the Tier 1 administrator OU.
-### Change User Context
-If it is not possible to configure a Group Managed Service Account (GMSA) as the run account for a scheduled task via group policy, this task changes the Tier 0 and Tier 1 user management tasks from system to the GMSA.
+If Kerberos Amoring is not available validate:
+### Default Domain Policy
+This enables support for Kerberos Amoring for all client computers. This is done via the setting:
+Administrative Templates\System\Kerberos\Kerberos Amoring
 
-## Tier Level Isolation scripts
-### Tier Level Computer Management
-This PowerShell script is designed to manage computer objects within Tier 0 and Tier 1 computer groups in an Active Directory (AD) environment. It ensures that computer objects are correctly placed in their respective Organizational Units (OUs) and updates the membership of the Tier 0 and Tier 1 computer groups accordingly.
-#### Parameters
-##### Configfile
-This is the full quaified path to the configuration file. If this parameter is empty, the script will search for the configuration in Active Directory or on the SYSVOL path
-#### scope
-Defines which scope will be used. Possible scopes are:
-Tier-0 only the Tier 0 computer group will be managed
-Tier-1 only the Tier 1 computer group will be managed
-All-Tiers   the computer group for Tier 0 and Tier1 will be managed
-### Tier Level User Management
-This script applies the Kerberos Authentication Policy to the users in the Tier 0 and Tier 1 user groups and adds them to the protected users group. The script allows multiple OU's for Tier 0 / 1. If configured, the script will remove unexpected users from the privileged groups and add users to the protected users group. This can be enabled or disabled in the configuration file.
-#### Parameters
-##### Configfile
-This is the full quaified path to the configuration file. If this parameter is empty, the script will search for the configuration in Active Directory or on the SYSVOL path
-### scope 
-Defines which scope will be used. Possible scopes are:
-Tier-0 only the Tier 0 computer group will be managed
-Tier-1 only the Tier 1 computer group will be managed
-All-Tiers   the computer group for Tier 0 and Tier1 will be managed
+### Default Domain Controller Policy:
+In this group policy, Kerberos Amoring is enabled at the domain level. The following settings are made for this purpose:
+Administrative Template\System\KDC\Kerberos Amoring Support mode
+Administrative Templates\System\Kerberos\Kerberos Amoring
+
+## Activation of Tier Level Isolation
+Once installed, you will need to enable TierLevelIsolation. Activation is done via the Tier Level Isolation group policy. This policy group consists of 5 Schedule Tasks that run on the current domain. The schedule tasks are:
+### Change user context
+Group Policy Preference does not allow you to create a Schedule Task in the context of a GMSA. This task of this Schedule Task is to change the Schedule Tasks Tier 0 User Management / Tier 1 User Management from SYSTEM to the GMSA context
+### Tier 0 computer management
+The task of this schedule task is to add or remove computer objects from the Tier 0 server group
+Both user Schedule Tasks have the trigger disabled by default to ensure that Tier 0 administrators are not locked out.
+In the first step, the two schedule tasks "Tier 0 Computer Management" and "Tier 1 Computer Management" should be adapted. The default setting is that the task starts daily at 12 p.m. and then repeats every 10 minutes. 
+### Tier 0 user management
+This Schedule Task adds the Tier 0 Kerberos Authentication Policy to Tier 0 administrators
+### Tier 1 computer management
+The task of this schedule task is to add or remove computer objects from the Tier 1 server group
+### tier 1 user management
+This Schedule Task adds the Tier 0 Kerberos Authentication Policy to Tier 0 administrators
+
+Once the Computer Management task has been started for the first time, all computer objects must appear in the Tier 0 Computer group. Once this is done, make sure that the Tier 0 Member Server objects have been restarted. 
+## Active the Tier 0 and Tier 1 user management tasks
+Both user Schedule Tasks have the trigger disabled by default to ensure that Tier 0 administrators are not locked out.
+In the first step, the two schedule tasks "Tier 0 Computer Management" and "Tier 1 Computer Management" should be adapted. The default setting is that the task starts daily at 12 p.m. and then repeats every 10 minutes. 
+Once the Computer Management task has been started for the first time, all computer objects must appear in the Tier 0 Computer group. Once this is done, make sure that the Tier 0 Member Server objects have been restarted. 
+Subsequently, the TierLevel isolation based on "Kerberos Authentication Polices" was to be tested. To do this, the Kerberos Authentication Policy is to add a Tier 0 user and validate the logon with this user object. 
+The test is successful if this user can only authenticate on a Tier 0 member server or a domain controller. (RDP from an unprotected system is not supported)
+The test can be repeated with several users. Once the administrators are familiar with Kerberos Authentication Policy based Administration, the Tier 0 user management task is enabled in the TierLevelIsolation Group Policy. 
+To do this, the trigger in the "Tier 0 User Management" tab must be set to active in the Group Policy in the Preferences/Schedule Task. The Taks starts at 12a.m. by default and repeats every 10 minutes. Depending on the environment, these values can be adjusted
+
+# Monitoring
+Monitoring is done in the Application Event log. For detailed information, a debug log file is also created. The path to the log file is logged as Windows events Source:TierLevelIsolation 1000 or Source:TierLevelIsolation 2000.
+## Computer management
+To monitor the computer management functions, look for the following events in the event log:
+|Event ID|	Type|	Description|	Trigger|
+1000	Information	Starting the Computer Management Script	This event is triggered when the Computer Management Script is executed. This event ID should appear every 10 minutes. 
+1302	Information	Adding a Computer Object to the Tier 0 Computer Group	If a new computer object is detected in a Tier 0 computer OU, it is added to the Tier Level Isolation Computer group
+1304	Warning	Removing a Computer Object from Tier Level OU	If a Computer Object is removed from the Tier Level OU, this Object is also removed from the group. 
+1401	Information	Adding a Computer Object to the Tier 0 Computer Group	If a new computer object is detected in a Tier 1 computer OUs, it is added to the Tier Level Isolation Computer group
+

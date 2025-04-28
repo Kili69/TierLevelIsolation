@@ -28,8 +28,7 @@ Version History:
     0.1.20250331 - Change the parameter from Path to OU on Add-TierLevelIsolationComputerPath, Add-TierLevelIsolationUserPath, Add-TierLevelIsolationServiceAccountPath to clarify that it is an Organizational Unit (OU) path.
                  - Added validation to check if the specified OU exists in Active Directory before adding it to the configuration.
                  - Added error handling for invalid inputs and exceptions when retrieving OUs or groups from Active Directory.
-    0.1.20250423 - Added function to set the DebugLog Path to the configuration file.
-                 - Added function to get the DebugLog Path from the configuration file.
+    0.1.20250428 - Added the force parameter to the Set-TierLevelIsolationComputerGroup, Set-TierLevelIsolationKerberosAuthenticationPolicy
 
 #>
 
@@ -414,14 +413,18 @@ function Set-TierLevelIsolationKerberosAuthenticationPolicy{
         [Parameter(Mandatory = $true, Position = 1)]
         $KerberosPolicyName,
         [Parameter(Mandatory = $false, Position = 2)]
-        [string]$configFile = $global:configFile
+        [string]$configFile = $global:configFile,
+        [Parameter(Mandatory = $false, Position = 3)]
+        [switch]$Force
     )
     
     $config = Get-TierLevelIsolationConfiguration $configFile
-    $KerbAuthPol = Get-ADAuthenticationPolicy -Filter "Name -eq '$KerberosPolicyName'" -ErrorAction SilentlyContinue 
-    if ($null -eq $KerbAuthPol){
-        Write-Host "The specified Kerberos Authentication Policy does not exist: $KerberosPolicyName" -ForegroundColor Red
-        return
+    if ($Force.IsPresent -eq $false){
+        $KerbAuthPol = Get-ADAuthenticationPolicy -Filter "Name -eq '$KerberosPolicyName'" -ErrorAction SilentlyContinue 
+        if ($null -eq $KerbAuthPol){
+            Write-Host "The specified Kerberos Authentication Policy does not exist: $KerberosPolicyName" -ForegroundColor Red
+            return
+        }
     }
     switch ($TierLevel) {
         "Tier0" { 
@@ -603,7 +606,9 @@ function Set-TierLevelIsolationComputerGroup{
         [Parameter(Mandatory = $true, Position = 1)]
         [string]$GroupName,
         [Parameter(Mandatory = $false, Position = 2)]
-        [string]$configFile = $global:configFile
+        [string]$configFile = $global:configFile,
+        [Parameter(Mandatory = $false, Position = 3)]
+        [switch]$Force
     )
     
     $config = Get-TierLevelIsolationConfiguration $configFile 
@@ -611,9 +616,12 @@ function Set-TierLevelIsolationComputerGroup{
         Write-Host "The specified group name is null or empty." -ForegroundColor Red
         return
     }
-    $Adgroup = Get-ADGroup -Filter "Name -eq '$GroupName'" -ErrorAction SilentlyContinue -Server "$((Get-ADDomainController -Discover -Service GlobalCatalog).HostName):3268" 
-    if ($null -eq $Adgroup) {
-        Write-Host "The specified group does not exist: $GroupName" -ForegroundColor Yellow
+    if ($Force.IsPresent -eq $false){
+        $Adgroup = Get-ADGroup -Filter "Name -eq '$GroupName'" -ErrorAction SilentlyContinue -Server "$((Get-ADDomainController -Discover -Service GlobalCatalog).HostName):3268" 
+        if ($null -eq $Adgroup) {
+            Write-Host "The specified group does not exist: $GroupName" -ForegroundColor Yellow
+            return
+        }
     }
     switch ($TierLevel) {
         "Tier0" {
@@ -649,7 +657,9 @@ function Add-TierLevelIsolationServiceAccountPath {
         [Parameter(Mandatory = $true, Position = 1)]
         [string]$OU,
         [Parameter(Mandatory = $false, Position = 2)]
-        [string]$configFile = $global:configFile
+        [string]$configFile = $global:configFile,
+        [Parameter(Mandatory = $false, Position = 3)]
+        [switch]$Force
     )
     $config = Get-TierLevelIsolationConfiguration $configFile
     if ($null -eq $OU) {
@@ -666,7 +676,7 @@ function Add-TierLevelIsolationServiceAccountPath {
     } else {
         $Path = Get-ADOrganizationalUnit -Filter "DistinguishedName -like '$OU,$((Get-ADDomain).DistinguishedName)'" -ErrorAction SilentlyContinue 
     }
-    if ($null -eq $Path) {
+    if ($null -eq $Path -and !$Force) {
         Write-Host "The specified path does not exist: $OU" -ForegroundColor Yellow
     }
     switch ($TierLevel) {

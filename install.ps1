@@ -66,6 +66,10 @@ possibility of such damages
         The context switch task will be created as a scheduled task in the GPO. 
         The user schedule tasks will now be disabled in the group policy. They will not shown up in the local scheduler until they are enabled in the group policy
         Bugfix in the module
+    Version 0.2.20250428
+        added the -force parameter to the Set-TierLevelIsolationComputerGroup function. This will ensure that the group name is changed even if the group doesn't exists.
+        added the -force parameter to the Set-TierLevelIsolationKerberosAuthenticationPolicy function. This will ensure that the group name is changed even if the Kerberos Authentication Policy  doesn't exists.
+        The solution will now work in any case with a GMSA. 
 #>
 param(
     [switch]$InstallPSModuleOnly
@@ -299,6 +303,15 @@ function Get-SelectedDomains {
 #region  Constanst and default value
 #####################################################################################################################################################################################
 $ScriptVersion = "0.2.202500331"
+try{
+    Import-Module ActiveDirectory -ErrorAction Stop
+    Import-Module GroupPolicy  -ErrorAction Stop
+} 
+catch {
+    Write-Host "Failed to load the required Powerhsell module" -ForegroundColor Red
+    Write-Host "validate the Active Directory and Group Policy Powershell modules are installed" -ForegroundColor Red
+    exit
+}
 #The current domain contains the relevant Tier level groups
 $CurrentDomainDNS = (Get-ADDomain).DNSRoot
 $CurrentDC        = (Get-ADDomainController -Discover -Service GlobalCatalog -NextClosestSite ).Name
@@ -361,15 +374,7 @@ $ClientKerberosAmoring = @{
 Write-Host "Welcome to the Tier Level isolation setup script" -ForegroundColor Green
 Write-Host "This script will prepare you active directory to protect Administrators with Kerberos Authentication Policies" -ForegroundColor Green 
 Write-Host "Tier 0 / Tier 1 isolation setup script ($ScriptVersion)" -ForegroundColor Green
-try{
-    Import-Module ActiveDirectory
-    Import-Module GroupPolicy  
-} 
-catch {
-    Write-Host "Failed to load the neede Powerhsell module" -ForegroundColor Red
-    Write-Host "validate the Active Directory and Group Policy Powershell modules are installed"
-    exit
-}
+
 #region install TierLevelIsolation module
 try{
     $ModulePath = Join-Path $Env:ProgramFiles\WindowsPowerShell\Modules "TierLevelIsolation"
@@ -449,7 +454,7 @@ if (($scope -eq "Tier0") -or ( $scope -eq "All-Tiers") ){
     }while ($strReadHost -like "y*")
     $strReadHost = Read-Host "Provide the Tier 0 Kerberos Authentication policy name ($DefaultT0KerbAuthPolName)"
     if ($strReadHost -eq ''){$strReadHost = $DefaultT0KerbAuthPolName}
-    Set-TierLevelIsolationKerberosAuthenticationPolicy Tier0 $strReadHost
+    Set-TierLevelIsolationKerberosAuthenticationPolicy Tier0 $strReadHost -Force
 }
 if ($scope -eq "Tier1" -or $scope -eq "All-Tiers"){
     Write-Host "Tier 1 isolation parameter "
@@ -473,19 +478,19 @@ if ($scope -eq "Tier1" -or $scope -eq "All-Tiers"){
     }while ($strReadHost -like "y*")
     $strReadHost = Read-Host "Provide the Tier 1 Kerberos Authentication policy name ($DefaultT1KerbAuthPolName)"
     if ($strReadHost -eq ''){$strReadHost = $DefaultT1KerbAuthPolName}
-    Set-TierLevelIsolationKerberosAuthenticationPolicy Tier1 $strReadHost
+    Set-TierLevelIsolationKerberosAuthenticationPolicy Tier1 $strReadHost -force
 }
 if ($scope -eq "Tier0" -or $scope -eq "All-Tiers"){
     Write-Host "Tier 0 server group parameter "
     $strReadHost = Read-Host "Provide the Tier 0 server samaccount group name ($DefaultT0ComputerGroupName)"
     if ($strReadHost -eq ''){$strReadHost = $DefaultT0ComputerGroupName}
-    Set-TierLevelIsolationComputerGroup Tier0 $strReadHost
+    Set-TierLevelIsolationComputerGroup Tier0 $strReadHost -Force
 }
 if (($scope -eq "Tier1") -or ( $scope -eq "All-Tiers")){
     Write-Host "Tier 1 isolation parameter "
     $strReadHost = Read-Host "Provide the Tier 1 server samaccount group name ($DefaultT1ComputerGroupName)"
     if ($strReadHost -eq ''){$strReadHost = $DefaultT1ComputerGroupName}
-    Set-TierLevelIsolationComputerGroup Tier1 $strReadHost
+    Set-TierLevelIsolationComputerGroup Tier1 $strReadHost -Force
 }
 Write-Host "Do you want to manage protected users group with tiering?"
 Write-Host "[0] Tier-0 users will be added to protected users"
@@ -733,30 +738,28 @@ if (($scope -eq "Tier-1") -or ($scope -eq "All-Tiers")){
     }
 }
 #create the GMSA if the Tier Level isolation works in Mulit-Domain-Domain Forest mode
-if ($config.Domains.Count -gt 1){
-    $strReadHost = Read-Host "Group Managed Service AccountName ($DefaultGMSAName)"
-    if ($strReadHost -eq '') {$strReadHost = $DefaultGMSAName}
-    $GMSAName = $strReadHost
-    if ($null -eq (Get-ADServiceAccount -Filter "name -eq '$GMSAName'")){
-        if (![bool](Get-KdsRootKey)){
-            Write-Host "KDS Rootkey is missing." -ForegroundColor Red
-            Write-Host "Creating KDS-Rootkey" -ForegroundColor Yellow
-            Add-KdsRootKey -EffectiveTime ((Get-Date).AddHours(-10))
-        }
-        New-GMSA -GMSAName $GMSAName -AllowTOLogon (Get-ADGroup -Identity "$((Get-ADDomain).DomainSID)-516") -Description $DescriptionGMSA
+$strReadHost = Read-Host "Group Managed Service AccountName ($DefaultGMSAName)"
+if ($strReadHost -eq '') {$strReadHost = $DefaultGMSAName}
+$GMSAName = $strReadHost
+if ($null -eq (Get-ADServiceAccount -Filter "name -eq '$GMSAName'")){
+    if (![bool](Get-KdsRootKey)){
+        Write-Host "KDS Rootkey is missing." -ForegroundColor Red
+        Write-Host "Creating KDS-Rootkey" -ForegroundColor Yellow
+        Add-KdsRootKey -EffectiveTime ((Get-Date).AddHours(-10))
     }
-    $oGMSA = Get-ADServiceAccount -Filter "name -eq '$GMSAName'"
-    $ForestRootDomain = (Get-ADForest).RootDomain
-    $EAdminsGroup = Get-ADGroup -Identity "$((Get-ADDomain -server (Get-ADForest).RootDomain).DomainSid)-519" -Properties Members -Server $ForestRootDomain
-    try {
-        if ($EAdminsGroup.Members -notcontains $oGMSA.DistinguishedName){
-            Add-ADGroupMember $EAdminsGroup -Members $oGMSA -Server $ForestRootDomain
-            Write-Host "The group $($oGMSA.Name) is added to the Enterprise Admins group" -ForegroundColor Yellow
-        }
+    New-GMSA -GMSAName $GMSAName -AllowTOLogon (Get-ADGroup -Identity "$((Get-ADDomain).DomainSID)-516") -Description $DescriptionGMSA
+}
+$oGMSA = Get-ADServiceAccount -Filter "name -eq '$GMSAName'"
+$ForestRootDomain = (Get-ADForest).RootDomain
+$EAdminsGroup = Get-ADGroup -Identity "$((Get-ADDomain -server (Get-ADForest).RootDomain).DomainSid)-519" -Properties Members -Server $ForestRootDomain
+try {
+    if ($EAdminsGroup.Members -notcontains $oGMSA.DistinguishedName){
+        Add-ADGroupMember $EAdminsGroup -Members $oGMSA -Server $ForestRootDomain
+        Write-Host "The group $($oGMSA.Name) is added to the Enterprise Admins group" -ForegroundColor Yellow
     }
-    catch{
-        Write-Host "The group $($oGMSA.Name) is not added to the Enterprise Admins group. Please add the group manually" -ForegroundColor Yellow
-    }
+}
+catch{
+    Write-Host "The group $($oGMSA.Name) is not added to the Enterprise Admins group. Please add the group manually" -ForegroundColor Yellow
 }
 try{
     Copy-Item .\TierLevelComputerManagement.ps1 $ScriptTarget -ErrorAction Stop

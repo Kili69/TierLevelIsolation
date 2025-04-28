@@ -1,7 +1,7 @@
 # Known Event ID
 ## TierLevelComputerManagement
 |EventID |Severity   |Message|
----
+|---|---|---|
 |1000| Information   | computermanagemetn script started                                |
 |1002| Debug         | Reading configuration from AD                                    |
 |1003| Error         | Missing AD configuration settings                                |
@@ -29,7 +29,7 @@
 
 ## TierLevelUserManagement
 |EventID|Severity    |Message|
----
+|---|---|---|
 |2000   | Information| Script started                                               |
 |2002   | Error      | Missing Kerberos Authentication Policy                       |
 |2003   | Debug      | Failed to read the configuration form the config file        |

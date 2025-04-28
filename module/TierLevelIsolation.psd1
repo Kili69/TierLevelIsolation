@@ -24,7 +24,7 @@
     RootModule = '0.1\TierLevelIsolation.psm1'
     
     # Version number of this module.
-    ModuleVersion = '0.1.20250320'
+    ModuleVersion = '0.1.20250428'
     
     # Supported PSEditions
     # CompatiblePSEditions = @()
