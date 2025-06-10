@@ -59,6 +59,8 @@ possibility of such damages
         Bug Fix in ValidateAndRemoveUser function. the function now recognize the relative DN of privielged users
     Version 0.2.20250423
         If a alternative logfile path in the configuration file is not set, the script will use the local appdata path of the user running the script.
+    Version 0.2.20250619
+        Fixed a error writing to event log
 
 #>
 param(
@@ -406,7 +408,7 @@ try{
                     $config = Get-Content $DefaultConfigFile | ConvertFrom-Json  
                     #Write-Log -Message "Read config from $ConfigFile" -Severity Debug -EventID 1101          
                 } else {
-                    Write-EventLog -LogName "Application" -source $source -Message "TierLevle Isolation Can't find the configuration in $DefaultConfigFile or Active Directory" -Severity Error -EventID 0
+                    Write-EventLog -LogName "Application" -source $source -Message "TierLevle Isolation Can't find the configuration in $DefaultConfigFile or Active Directory" -EntryType Error -EventID 0
                     return 0xe7
                 }
             }
@@ -419,7 +421,7 @@ try{
 
 }
 catch {
-    Write-EventLog -LogName "Application" -Source "Application" -Message "error reading configuration" -Severity Error -EventID 0
+    Write-EventLog -LogName "Application" -Source "Application" -Message "error reading configuration" -EntryType Error -EventID 0
     return 0x3E8
 }
 #region Manage log file
