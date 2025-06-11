@@ -107,14 +107,19 @@ function Write-Log {
         [int]$EventID
     )
 
+    
     #Format the log message and write it to the log file
     $LogLine = "$(Get-Date -Format o), [$Severity],[$EventID], $Message"
-    Add-Content -Path $LogFile -Value $LogLine 
+    if ($LogFile -ne $null) { #Safety check to make sure logfile isnt null
+        Add-Content -Path $LogFile -Value $LogLine
+    }
     #If the severity is not debug write the even to the event log and format the output
     switch ($Severity) {
         'Error' { 
             Write-Host $Message -ForegroundColor Red
-            Add-Content -Path $LogFile -Value $Error[0].ScriptStackTrace 
+            if ($LogFile -ne $null) { #Safety check to make sure logfile isnt null
+                Add-Content -Path $LogFile -Value $Error[0].ScriptStackTrace 
+            }
             Write-EventLog -LogName $eventLog -source $source -EventId $EventID -EntryType Error -Message $Message -Category 0
         }
         'Warning' { 
