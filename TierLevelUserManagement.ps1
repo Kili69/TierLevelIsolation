@@ -397,10 +397,12 @@ try{
     #if the configuration is avaiable in the Active Directory configuration partition, the script will read the configuration from the AD
     #otherwise try to use the default configuration file
     if ($ConfigFile -eq '') {
-        if ($null -ne (Get-ADObject -Filter "DistinguishedName -eq '$ADconfigurationPath'")){
-            #Write-Log -Message "Read config from AD configuration partition" -Severity Debug -EventID 1002
-            Write-host "AD config lesen noch implementieren" -ForegroundColor Red -BackgroundColor DarkGray
-            return
+        if ($null -ne $ADconfigurationPath){ #Check that $ADconfigurationPath is not null to avoid exeption with Get-ADObject
+            if ($null -ne (Get-ADObject -Filter "DistinguishedName -eq '$ADconfigurationPath'")){
+                #Write-Log -Message "Read config from AD configuration partition" -Severity Debug -EventID 1002
+                Write-host "AD config lesen noch implementieren" -ForegroundColor Red -BackgroundColor DarkGray
+                return
+            }
         } else {
             #last resort if the configfile paramter is not available and no configuration is stored in the AD. check for the dafault configuration file
             if ($null -eq $config){
