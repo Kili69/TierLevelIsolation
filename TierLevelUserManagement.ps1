@@ -61,6 +61,9 @@ possibility of such damages
         If a alternative logfile path in the configuration file is not set, the script will use the local appdata path of the user running the script.
     Version 0.2.20250619
         Fixed a error writing to event log
+    Version 0.2.20250623
+        Fixed missing ADConfiguration path in TierLevelUserManagement, preventing authentication policy management
+
 
 #>
 param(
@@ -361,7 +364,7 @@ function ConvertTo-DistinguishedNames{
 # Main program starts here
 ##############################################################################################################################
 #script Version 
-$ScriptVersion = "0.2.20250429"
+$ScriptVersion = "0.2.20250623"
 try {   
     $eventLog = "Application"
     $source = "TierLevelIsolation"
@@ -379,7 +382,7 @@ $config = $null
 #the current domain must contains the Tier level user groups
 $CurrentDomainDNS = (Get-ADDomain).DNSRoot
 $DefaultConfigFile = "\\$CurrentDomainDNS\SYSVOL\$CurrentDomainDNS\scripts\TierLevelIsolation.config"
-#$ADconfigurationPath = "CN=Tier Level Isolation,CN=Services,$((Get-ADRootDSE).configurationNamingContext)"
+$ADconfigurationPath = "CN=Tier Level Isolation,CN=Services,$((Get-ADRootDSE).configurationNamingContext)"
 
 # relative SID of privileged groups
 $PrivlegeDomainSid = @(
