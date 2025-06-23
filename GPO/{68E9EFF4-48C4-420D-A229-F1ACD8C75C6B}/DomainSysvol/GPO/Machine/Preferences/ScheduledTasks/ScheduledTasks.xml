@@ -255,7 +255,11 @@
         <Actions Context="Author">
           <Exec>
             <Command>powershell.exe</Command>
-            <Arguments>-command "$GMSA = Get-ADServiceAccount -Identity 'TierLevel-mgmt';$principal = New-ScheduledTaskPrincipal -LogonType Password -userID $GMSA.SID;Set-ScheduledTask 'Tier 0 User Management' -Principal $principal;Set-ScheduledTask 'Tier 1 User Management' -Principal $principal"</Arguments>
+            <Arguments>-command "$GMSA = Get-ADServiceAccount -Identity '#GMSAName';$principal = New-ScheduledTaskPrincipal -LogonType Password -userID $GMSA.SID;Set-ScheduledTask 'Tier 0 User Management' -Principal $principal;Set-ScheduledTask 'Tier 1 User Management' -Principal $principal"</Arguments>
+          </Exec>
+                    <Exec>
+            <Command>powershell.exe</Command>
+            <Arguments>-command "$DCGrp  = (Get-AdDomain).DomainSID.Value + '-516';$DC = Get-ADGroupMember -Identity $DCGrp | Select-Object SamAccountName; Set-ADServiceAccount -Identity '#GMSAName' -PrincipalsAllowedToRetrieveManagedPassword $DC"</Arguments>
           </Exec>
         </Actions>
         <Triggers>
