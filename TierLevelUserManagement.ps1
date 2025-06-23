@@ -61,6 +61,16 @@ possibility of such damages
         If a alternative logfile path in the configuration file is not set, the script will use the local appdata path of the user running the script.
     Version 0.2.20250619
         Fixed a error writing to event log
+    Version 0.2.20250623
+        Error fixed if a configfile parameter is used
+        added mulitiple exitcodes if the script terminates with an error
+
+    exist codes:
+        0x3E8 - The script terminated with a unexpected error
+        0x3E9 - The configuration file could not be found
+        0x3EA - The scope paramter does not match to the configuration scope
+        0x3EB - The configuration file could not be found
+
 
 #>
 param(
@@ -361,7 +371,7 @@ function ConvertTo-DistinguishedNames{
 # Main program starts here
 ##############################################################################################################################
 #script Version 
-$ScriptVersion = "0.2.20250429"
+$ScriptVersion = "0.2.20250623"
 try {   
     $eventLog = "Application"
     $source = "TierLevelIsolation"
@@ -397,11 +407,11 @@ try{
     #if the configuration is avaiable in the Active Directory configuration partition, the script will read the configuration from the AD
     #otherwise try to use the default configuration file
     if ($ConfigFile -eq '') {
-        if ($null -ne (Get-ADObject -Filter "DistinguishedName -eq '$ADconfigurationPath'")){
-            #Write-Log -Message "Read config from AD configuration partition" -Severity Debug -EventID 1002
-            Write-host "AD config lesen noch implementieren" -ForegroundColor Red -BackgroundColor DarkGray
-            return
-        } else {
+#        if ($null -ne (Get-ADObject -Filter "DistinguishedName -eq '$ADconfigurationPath'")){
+#            #Write-Log -Message "Read config from AD configuration partition" -Severity Debug -EventID 1002
+#            Write-host "AD config lesen noch implementieren" -ForegroundColor Red -BackgroundColor DarkGray
+#            return
+ #       } else {
             #last resort if the configfile paramter is not available and no configuration is stored in the AD. check for the dafault configuration file
             if ($null -eq $config){
                 if ((Test-Path -Path $DefaultConfigFile)){
@@ -412,13 +422,20 @@ try{
                     return 0xe7
                 }
             }
-        }
+  #      }
     }
     else {    
-        $config = Get-Content $ConfigFile | ConvertFrom-Json 
-        Write-Log -Message "Read config from $ConfigFile" -Severity Debug -EventID 1101
+        if (Test-Path -Path $ConfigFile){
+            $config = Get-Content $ConfigFile | ConvertFrom-Json 
+            if ($null -eq $config){
+                Write-EventLog -LogName "Application" -source $source -Message "TierLevle Isolation Can't read the configuration from $ConfigFile" -EntryType Error -EventID 0
+                return 0x3E9    
+            }
+        } else {
+            Write-EventLog -LogName "Application" -source $source -Message "TierLevel Isolation Can't find the configuration file $ConfigFile" -EntryType Error -EventID 0
+            return 0x3EB
+        }
     }
-
 }
 catch {
     Write-EventLog -LogName "Application" -Source "Application" -Message "error reading configuration" -EntryType Error -EventID 0
@@ -452,7 +469,7 @@ switch ($scope) {
     "Tier-0" { 
         if ($config.scope -eq "Tier-1"){
             Write-Log -Message "The scope paramter $scope does not match to the configuration scope $($config.scope) the script is terminated" -Severity Error -EventID 2006
-            return 0x3E8
+            return 0x3EA
         } else {
             $config.Tier0UsersPath = ConvertTo-DistinguishedNames -DomainsDNS $config.Domains -DistinguishedNames $config.Tier0UsersPath
             $config.Tier0ServiceAccountPath = ConvertTo-DistinguishedNames -DomainsDNS $config.Domains -DistinguishedNames $config.Tier0ServiceAccountPath
@@ -462,7 +479,7 @@ switch ($scope) {
     "Tier-1"{
         if ($config.scope -eq "Tier-0"){
             Write-Log -Message "The scope paramter $scope does not match to the configuration scope $($config.scope) the script is terminated" -Severity Error -EventID 2006
-            return 0x3E8
+            return 0x3EA
         } else {
             $config.Tier1UsersPath = ConvertTo-DistinguishedNames -DomainsDNS $config.Domains -DistinguishedNames $config.Tier1UsersPath
             $config.Tier1ServiceAccountPath = ConvertTo-DistinguishedNames -DomainsDNS $config.Domains -DistinguishedNames $config.Tier1ServiceAccountPath

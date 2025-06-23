@@ -47,6 +47,16 @@ possibility of such damages
         Default configuration file change from tiering.json to TierLevelIsolation.config
     Version 0.2.20250329
         The script consumes the log path parameter from the configfile
+    Version 0.2.20250623
+        A errory fixed is the config file is not available or incorrect format
+        New exit code added
+
+    Exit codes:
+        0x3E8 - a general error occured while readinb the configuration file
+        0x3E9 - the configuration file is not available or has an incorrect format
+        0x3EA - format error in the configuration file
+        0x3EB - the configuration file is not available 
+        0x3Ec - Can't find the computer group for the specified scope
 #>
 
 param(
@@ -185,7 +195,7 @@ $ADconfigurationPath = "CN=Tier Level Isolation,CN=Services,$((Get-ADRootDSE).co
 #endregion
 
 #script Version 
-$ScriptVersion = "0.2.20250429"
+$ScriptVersion = "0.2.20250623"
 #validate the event source TierLevelIsolation is registered in the application log. If the registration failes
 #the events will be written with the standard application event source to the event log. 
 try {   
@@ -226,14 +236,26 @@ try{
             }
         }
     }
-    else {    
-        $config = Get-Content $ConfigFile | ConvertFrom-Json 
-        Write-Log -Message "Read config from $ConfigFile" -Severity Debug -EventID 1101
+    else {  
+        if (Test-Path -Path $ConfigFile){  
+            $config = Get-Content $ConfigFile | ConvertFrom-Json 
+            if ($null -eq $config) {
+                Write-EventLog -LogName "Application" -source $source -Message "TierLevel Isolation Can't read the configuration file $ConfigFile" -EntryType Error -EventID 0
+                Write-Output "An error occured while reading the configuration file $ConfigFile. The script will exit with code 0x3EB"
+                return 0x3EB
+            }
+            Write-Log -Message "Read config from $ConfigFile" -Severity Debug -EventID 1101
+        } else {
+            Write-EventLog -LogName "Application" -source $source -Message "TierLevel Isolation Can't find the configuration file $ConfigFile" -EntryType Error -EventID 0
+            write-output "An error occured while reading the configuration file $ConfigFile. The script will exit with code 0x3EA"
+            return 0x3EA
+        }
     }
 
 }
 catch {
     Write-EventLog -LogName "Application" -Source "Application" -Message "error reading configuration" -Severity Error -EventID 0
+    Write-Output " An error occured while reading the configuration file $ConfigFile. The script will exit with code 0x3E8"
     return 0x3E8
 }
 #if the paramter $scope is set, it will overwrite the saved configuration
@@ -265,7 +287,8 @@ try {
     $Tier0ComputerGroup = Get-ADGroup -Filter "SamAccountName -eq '$($config.Tier0ComputerGroup)'" -Properties member
     if ($null -eq $Tier0ComputerGroup) {
         Write-Log "Tiering computer management: Can't find the Tier 0 computer group $($config.Tier0ComputerGroup) in the current domain. Script aborted" -Severity Error -EventID 1200
-        exit 0x3EA
+        Write-Output "can't fined the Tier 0 computer group $($config.Tier0ComputerGroup) in the current domain. Script aborted with 0x3EC"
+        exit 0x3EC
     } else {
         Write-Log -Message "The group $($Tier0computerGroup.DistinguishedName) has $($Tier0computerGroup.Member.Count) members" -Severity Debug -EventID 1201
     }
@@ -278,6 +301,7 @@ try {
 }
 catch [Microsoft.ActiveDirectory.Management.ADServerDownException] {
     Write-Log "The AD web service is not available" -Severity Error -EventID 1203
+    Write-Output "The AD web service is not available. The script will exit with code 0x3E9"
     exit 0x3E9
 }
 #endregion
