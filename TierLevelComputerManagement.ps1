@@ -50,6 +50,8 @@ possibility of such damages
     Version 0.2.20250623
         A errory fixed is the config file is not available or incorrect format
         New exit code added
+    Version 0.2.20250625
+        Removed inconsistency between this script and the TierLevelUserManagement.ps1 script reading the config file
 
     Exit codes:
         0x3E8 - a general error occured while readinb the configuration file
@@ -191,11 +193,11 @@ $CurrentDomainDNS = (Get-ADDomain).DNSRoot
 #The default configuration file is located in the SYSVOL path of the current domain
 $DefaultConfigFile = "\\$CurrentDomainDNS\SYSVOL\$CurrentDomainDNS\scripts\TierLevelIsolation.config"
 #The default path to the configuration in the Active Directory configuration partition
-$ADconfigurationPath = "CN=Tier Level Isolation,CN=Services,$((Get-ADRootDSE).configurationNamingContext)"
+#$ADconfigurationPath = "CN=Tier Level Isolation,CN=Services,$((Get-ADRootDSE).configurationNamingContext)"
 #endregion
 
 #script Version 
-$ScriptVersion = "0.2.20250623"
+$ScriptVersion = "0.2.20250625"
 #validate the event source TierLevelIsolation is registered in the application log. If the registration failes
 #the events will be written with the standard application event source to the event log. 
 try {   
@@ -219,13 +221,13 @@ try{
     #if the configuration is avaiable in the Active Directory configuration partition, the script will read the configuration from the AD
     #otherwise try to use the default configuration file
     if ($ConfigFile -eq '') {
-        if ($null -ne (Get-ADObject -Filter "DistinguishedName -eq '$ADconfigurationPath'")){
+<#        if ($null -ne (Get-ADObject -Filter "DistinguishedName -eq '$ADconfigurationPath'")){
             #Write-Log -Message "Read config from AD configuration partition" -Severity Debug -EventID 1002
             Write-host "AD config lesen noch implementieren" -ForegroundColor Red -BackgroundColor DarkGray
             return
         } else {
             #last resort if the configfile paramter is not available and no configuration is stored in the AD. check for the dafault configuration file
-            if ($null -eq $config){
+#>            if ($null -eq $config){
                 if ((Test-Path -Path $DefaultConfigFile)){
                     $config = Get-Content $DefaultConfigFile | ConvertFrom-Json  
                     #Write-Log -Message "Read config from $ConfigFile" -Severity Debug -EventID 1101          
@@ -235,7 +237,7 @@ try{
                 }
             }
         }
-    }
+#    }
     else {  
         if (Test-Path -Path $ConfigFile){  
             $config = Get-Content $ConfigFile | ConvertFrom-Json 
