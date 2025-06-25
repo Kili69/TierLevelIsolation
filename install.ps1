@@ -739,6 +739,10 @@ if (($scope -eq "Tier-1") -or ($scope -eq "All-Tiers")){
 }
 #create the GMSA if the Tier Level isolation works in Mulit-Domain-Domain Forest mode
 $strReadHost = Read-Host "Group Managed Service AccountName ($DefaultGMSAName)"
+while ($strReadHost.Length -gt 15) {
+    Write-Host "The service account has a samAccountName attribute of '$strReadHost' which is too long; the samAccountName attribute must not be longer than 15 characters."
+    $strReadHost = Read-Host "Group Managed Service AccountName ($DefaultGMSAName)"
+}
 if ($strReadHost -eq '') {$strReadHost = $DefaultGMSAName}
 $GMSAName = $strReadHost
 if ($null -eq (Get-ADServiceAccount -Filter "name -eq '$GMSAName'")){
