@@ -28,7 +28,10 @@ Version History:
     0.1.20250331 - Change the parameter from Path to OU on Add-TierLevelIsolationComputerPath, Add-TierLevelIsolationUserPath, Add-TierLevelIsolationServiceAccountPath to clarify that it is an Organizational Unit (OU) path.
                  - Added validation to check if the specified OU exists in Active Directory before adding it to the configuration.
                  - Added error handling for invalid inputs and exceptions when retrieving OUs or groups from Active Directory.
-    0.1.20250428 - Added the force parameter to the Set-TierLevelIsolationComputerGroup, Set-TierLevelIsolationKerberosAuthenticationPolicy
+    0.1.20250423 - Added function to set the DebugLog Path to the configuration file.
+                 - Added function to get the DebugLog Path from the configuration file.
+    Version 0.2.20250428
+                 0.1.20250428 - Added the force parameter to the Set-TierLevelIsolationComputerGroup, Set-TierLevelIsolationKerberosAuthenticationPolicy
 
 #>
 

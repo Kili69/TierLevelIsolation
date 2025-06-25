@@ -70,6 +70,11 @@ possibility of such damages
         added the -force parameter to the Set-TierLevelIsolationComputerGroup function. This will ensure that the group name is changed even if the group doesn't exists.
         added the -force parameter to the Set-TierLevelIsolationKerberosAuthenticationPolicy function. This will ensure that the group name is changed even if the Kerberos Authentication Policy  doesn't exists.
         The solution will now work in any case with a GMSA. 
+    Version 0.2.20250625
+        [Stephen Shkardoon]
+        Added GMSA validation. The script will not accept GMSA names longer than 15 characters.
+
+
 #>
 param(
     [switch]$InstallPSModuleOnly
@@ -739,6 +744,10 @@ if (($scope -eq "Tier-1") -or ($scope -eq "All-Tiers")){
 }
 #create the GMSA if the Tier Level isolation works in Mulit-Domain-Domain Forest mode
 $strReadHost = Read-Host "Group Managed Service AccountName ($DefaultGMSAName)"
+while ($strReadHost.Length -gt 15) {
+    Write-Host "The service account has a samAccountName attribute of '$strReadHost' which is too long; the samAccountName attribute must not be longer than 15 characters."
+    $strReadHost = Read-Host "Group Managed Service AccountName ($DefaultGMSAName)"
+}
 if ($strReadHost -eq '') {$strReadHost = $DefaultGMSAName}
 $GMSAName = $strReadHost
 if ($null -eq (Get-ADServiceAccount -Filter "name -eq '$GMSAName'")){

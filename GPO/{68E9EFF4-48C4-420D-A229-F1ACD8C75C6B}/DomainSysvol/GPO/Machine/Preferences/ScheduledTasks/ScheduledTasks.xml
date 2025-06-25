@@ -1,277 +1,287 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <ScheduledTasks clsid="{CC63F200-7309-4ba0-B154-A71CD118DBCC}">
-	<TaskV2 clsid="{D8896631-B747-47a7-84A6-C155337F3BC8}" name="Tier 0 Computer Management" image="2" changed="2025-03-30 00:00:01" uid="{B1168190-7E2C-4177-9391-B1FFBCDF4774}" disabled="0">
-		<Properties action="U" name="Tier 0 Computer Management" runAs="NT AUTHORITY\System" logonType="S4U">
-			<Task version="1.2">
-				<RegistrationInfo>
-					<Author>Administrator</Author>
-					<Description>Manage Tier Level Isolation Tier 0 computer claim. This schedule task add Tier 0 computer objects to the Tier 0 Computer group</Description>
-				</RegistrationInfo>
-				<Principals>
-					<Principal id="Author">
-						<UserId>NT AUTHORITY\System</UserId>
-						<LogonType>S4U</LogonType>
-						<RunLevel>HighestAvailable</RunLevel>
-					</Principal>
-				</Principals>
-				<Settings>
-					<IdleSettings>
-						<Duration>PT5M</Duration>
-						<WaitTimeout>PT1H</WaitTimeout>
-						<StopOnIdleEnd>false</StopOnIdleEnd>
-						<RestartOnIdle>false</RestartOnIdle>
-					</IdleSettings>
-					<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
-					<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
-					<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-					<AllowHardTerminate>false</AllowHardTerminate>
-					<AllowStartOnDemand>true</AllowStartOnDemand>
-					<Enabled>true</Enabled>
-					<Hidden>false</Hidden>
-					<ExecutionTimeLimit>PT1H</ExecutionTimeLimit>
-					<Priority>7</Priority>
-				</Settings>
-				<Actions Context="Author">
-					<Exec>
-						<Command>powershell.exe</Command>
-						<Arguments>-executionpolicy bypass -NoProfile -NonInteractive -file "#ScriptPath\TierLevelComputerManagement.ps1" -Scope Tier-0</Arguments>
-					</Exec>
-				</Actions>
-				<Triggers>
-					<CalendarTrigger>
-						<StartBoundary>2025-03-030T12:00:00</StartBoundary>
-						<Enabled>true</Enabled>
-						<ScheduleByDay>
-							<DaysInterval>1</DaysInterval>
-						</ScheduleByDay>
-						<Repetition>
-							<Interval>PT10M</Interval>
-							<Duration>P1D</Duration>
-							<StopAtDurationEnd>false</StopAtDurationEnd>
-						</Repetition>
-					</CalendarTrigger>
-				</Triggers>
-			</Task>
-		</Properties>
-	</TaskV2>
-	<TaskV2 clsid="{D8896631-B747-47a7-84A6-C155337F3BC8}" name="Tier 1 Computer Management" image="2" changed="2024-12-06 14:29:37" uid="{D9E485BC-145A-47BC-B6C0-A3457662E26A}" disabled="0">
-		<Properties action="U" name="Tier 1 Computer Management" runAs="NT AUTHORITY\System" logonType="S4U">
-			<Task version="1.2">
-				<RegistrationInfo>
-					<Author>Administrator</Author>
-					<Description>Manage Tier Level Isolation Tier 1 computer claim. This schedule task add Tier 1 computer objects to the Tier 1 computer group</Description>
-				</RegistrationInfo>
-				<Principals>
-					<Principal id="Author">
-						<UserId>NT AUTHORITY\System</UserId>
-						<LogonType>S4U</LogonType>
-						<RunLevel>HighestAvailable</RunLevel>
-					</Principal>
-				</Principals>
-				<Settings>
-					<IdleSettings>
-						<Duration>PT5M</Duration>
-						<WaitTimeout>PT1H</WaitTimeout>
-						<StopOnIdleEnd>false</StopOnIdleEnd>
-						<RestartOnIdle>false</RestartOnIdle>
-					</IdleSettings>
-					<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
-					<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
-					<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-					<AllowHardTerminate>false</AllowHardTerminate>
-					<AllowStartOnDemand>true</AllowStartOnDemand>
-					<Enabled>true</Enabled>
-					<Hidden>false</Hidden>
-					<ExecutionTimeLimit>PT1H</ExecutionTimeLimit>
-					<Priority>7</Priority>
-				</Settings>
-				<Actions Context="Author">
-					<Exec>
-						<Command>powershell.exe</Command>
-						<Arguments>-executionpolicy bypass -NoProfile -NonInteractive -file "#ScriptPath\TierLevelComputerManagement.ps1" -Scope Tier-1</Arguments>
-					</Exec>
-				</Actions>
-				<Triggers>
-					<CalendarTrigger>
-						<StartBoundary>2024-12-06T12:05:00</StartBoundary>
-						<Enabled>true</Enabled>
-						<ScheduleByDay>
-							<DaysInterval>1</DaysInterval>
-						</ScheduleByDay>
-						<Repetition>
-							<Interval>PT10M</Interval>
-							<Duration>P1D</Duration>
-							<StopAtDurationEnd>false</StopAtDurationEnd>
-						</Repetition>
-					</CalendarTrigger>
-				</Triggers>
-			</Task>
-		</Properties>
-	</TaskV2>
-	<TaskV2 clsid="{D8896631-B747-47a7-84A6-C155337F3BC8}" name="Tier 0 User Management" image="2" changed="2025-03-30 00:00:1" uid="{54CA3192-AF32-4C83-98BF-370533359B56}" disabled="1">
-		<Properties action="U" name="Tier 0 User Management" runAs="NT AUTHORITY\System" logonType="S4U">
-			<Task version="1.2">
-				<RegistrationInfo>
-					<Author>Tiering\Administrator</Author>
-					<Description>Manage Tier Level Isolation Tier 0 users</Description>
-				</RegistrationInfo>
-				<Principals>
-					<Principal id="Author">
-						<UserId>NT AUTHORITY\System</UserId>
-						<LogonType>S4U</LogonType>
-						<RunLevel>LeastPrivilege</RunLevel>
-					</Principal>
-				</Principals>
-				<Settings>
-					<IdleSettings>
-						<Duration>PT5M</Duration>
-						<WaitTimeout>PT1H</WaitTimeout>
-						<StopOnIdleEnd>false</StopOnIdleEnd>
-						<RestartOnIdle>false</RestartOnIdle>
-					</IdleSettings>
-					<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
-					<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
-					<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-					<AllowHardTerminate>false</AllowHardTerminate>
-					<AllowStartOnDemand>true</AllowStartOnDemand>
-					<Enabled>true</Enabled>
-					<Hidden>false</Hidden>
-					<ExecutionTimeLimit>PT1H</ExecutionTimeLimit>
-					<Priority>7</Priority>
-				</Settings>
-				<Triggers>
-					<CalendarTrigger>
-						<StartBoundary>2024-12-06T12:00:00</StartBoundary>
-						<Enabled>true</Enabled>
-						<ScheduleByDay>
-							<DaysInterval>1</DaysInterval>
-						</ScheduleByDay>
-						<RandomDelay>PT1H</RandomDelay>
-						<Repetition>
-							<Interval>PT10M</Interval>
-							<Duration>P1D</Duration>
-							<StopAtDurationEnd>false</StopAtDurationEnd>
-						</Repetition>
-					</CalendarTrigger>
-				</Triggers>
-				<Actions Context="Author">
-					<Exec>
-						<Command>powershell.exe</Command>
-						<Arguments>-executionpolicy bypass -NoProfile -NonInteractive -file "#ScriptPath\TierLevelUserManagement.ps1" -Scope Tier-0</Arguments>
-					</Exec>
-				</Actions>
-			</Task>
-		</Properties>
-	</TaskV2>
-	<TaskV2 clsid="{D8896631-B747-47a7-84A6-C155337F3BC8}" name="Tier 1 User Management" image="2" changed="2025-03-30 18:30:34" uid="{019C1A3C-7B7A-4C6B-8A81-5DF205198B84}" disabled="1">
-		<Properties action="U" name="Tier 1 User Management" runAs="NT AUTHORITY\System" logonType="S4U">
-			<Task version="1.2">
-				<RegistrationInfo>
-					<Author>Tiering\Administrator</Author>
-					<Description>Manage Tier 1 computer. This schedule task acce Tier 1 computer to the Tier 1 computer group</Description>
-				</RegistrationInfo>
-				<Principals>
-					<Principal id="Author">
-						<UserId>NT AUTHORITY\System</UserId>
-						<LogonType>S4U</LogonType>
-						<RunLevel>LeastPrivilege</RunLevel>
-					</Principal>
-				</Principals>
-				<Settings>
-					<IdleSettings>
-						<Duration>PT10M</Duration>
-						<WaitTimeout>PT1H</WaitTimeout>
-						<StopOnIdleEnd>true</StopOnIdleEnd>
-						<RestartOnIdle>false</RestartOnIdle>
-					</IdleSettings>
-					<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
-					<DisallowStartIfOnBatteries>true</DisallowStartIfOnBatteries>
-					<StopIfGoingOnBatteries>true</StopIfGoingOnBatteries>
-					<AllowHardTerminate>false</AllowHardTerminate>
-					<RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
-					<AllowStartOnDemand>true</AllowStartOnDemand>
-					<Enabled>true</Enabled>
-					<Hidden>false</Hidden>
-					<RunOnlyIfIdle>false</RunOnlyIfIdle>
-					<WakeToRun>false</WakeToRun>
-					<ExecutionTimeLimit>PT1H</ExecutionTimeLimit>
-					<Priority>7</Priority>
-				</Settings>
-				<Triggers>
-					<CalendarTrigger>
-						<StartBoundary>2024-12-06T12:00:00</StartBoundary>
-						<Enabled>true</Enabled>
-						<ScheduleByDay>
-							<DaysInterval>1</DaysInterval>
-						</ScheduleByDay>
-						<RandomDelay>PT1H</RandomDelay>
-						<Repetition>
-							<Interval>PT10M</Interval>
-							<Duration>P1D</Duration>
-							<StopAtDurationEnd>false</StopAtDurationEnd>
-						</Repetition>
-					</CalendarTrigger>
-				</Triggers>
-				<Actions Context="Author">
-					<Exec>
-						<Command>powershell.exe</Command>
-						<Arguments>-executionpolicy bypass -NoProfile -NonInteractive -file "#ScriptPath\TierLevelUserManagement.ps1" -Scope Tier-1</Arguments>
-					</Exec>
-				</Actions>
-			</Task>
-		</Properties>
-	</TaskV2>
-	<TaskV2 clsid="{D8896631-B747-47a7-84A6-C155337F3BC8}" name="Change User context" image="2" changed="2025-03-30 18:27:19" uid="{832DD5A2-5AA7-4F99-8663-0D4855E5DA56}">
-		<Properties action="U" name="TierLevel Isolation Change User context" runAs="NT AUTHORITY\System" logonType="S4U">
-			<Task version="1.2">
-				<RegistrationInfo>
-					<Author>Administrator</Author>
-					<Description>This script change theidentity of the usermanagement script into the GMSA</Description>
-				</RegistrationInfo>
-				<Principals>
-					<Principal id="Author">
-						<UserId>NT AUTHORITY\System</UserId>
-						<LogonType>S4U</LogonType>
-						<RunLevel>LeastPrivilege</RunLevel>
-					</Principal>
-				</Principals>
-				<Settings>
-					<IdleSettings>
-						<Duration>PT5M</Duration>
-						<WaitTimeout>PT1H</WaitTimeout>
-						<StopOnIdleEnd>false</StopOnIdleEnd>
-						<RestartOnIdle>false</RestartOnIdle>
-					</IdleSettings>
-					<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
-					<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
-					<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-					<AllowHardTerminate>false</AllowHardTerminate>
-					<AllowStartOnDemand>true</AllowStartOnDemand>
-					<Enabled>true</Enabled>
-					<Hidden>false</Hidden>
-					<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
-					<Priority>7</Priority>
-				</Settings>
-				<Actions Context="Author">
-					<Exec>
-						<Command>powershell.exe</Command>
-						<Arguments>-command "$GMSA = Get-ADServiceAccount -Identity 'TierLevel-mgmt';$principal = New-ScheduledTaskPrincipal -LogonType Password -userID $GMSA.SID;Set-ScheduledTask 'Tier 0 User Management' -Principal $principal;Set-ScheduledTask 'Tier 1 User Management' -Principal $principal"</Arguments>
-					</Exec>
-				</Actions>
-				<Triggers><CalendarTrigger>
-						<StartBoundary>2024-12-06T12:00:00</StartBoundary>
-						<Enabled>true</Enabled>
-						<ScheduleByDay>
-							<DaysInterval>1</DaysInterval>
-						</ScheduleByDay>
-						<RandomDelay>PT1H</RandomDelay>
-						<Repetition>
-							<Interval>PT1H</Interval>
-							<Duration>P1D</Duration>
-							<StopAtDurationEnd>false</StopAtDurationEnd>
-						</Repetition>
-					</CalendarTrigger><EventTrigger><Enabled>true</Enabled><Subscription>&lt;QueryList&gt;&lt;Query Id="0" Path="System"&gt;&lt;Select Path="System"&gt;*[System[Provider[@Name='Microsoft-Windows-GroupPolicy'] and EventID=1502]]&lt;/Select&gt;&lt;/Query&gt;&lt;/QueryList&gt;</Subscription></EventTrigger>
-				</Triggers></Task>
-		</Properties>
-	</TaskV2>
+  <TaskV2 clsid="{D8896631-B747-47a7-84A6-C155337F3BC8}" name="Tier 0 Computer Management" image="2" changed="2025-03-30 00:00:01" uid="{B1168190-7E2C-4177-9391-B1FFBCDF4774}" disabled="0">
+    <Properties action="U" name="Tier 0 Computer Management" runAs="NT AUTHORITY\System" logonType="S4U">
+      <Task version="1.2">
+        <RegistrationInfo>
+          <Author>Administrator</Author>
+          <Description>Manage Tier Level Isolation Tier 0 computer claim. This schedule task add Tier 0 computer objects to the Tier 0 Computer group</Description>
+        </RegistrationInfo>
+        <Principals>
+          <Principal id="Author">
+            <UserId>NT AUTHORITY\System</UserId>
+            <LogonType>S4U</LogonType>
+            <RunLevel>HighestAvailable</RunLevel>
+          </Principal>
+        </Principals>
+        <Settings>
+          <IdleSettings>
+            <Duration>PT5M</Duration>
+            <WaitTimeout>PT1H</WaitTimeout>
+            <StopOnIdleEnd>false</StopOnIdleEnd>
+            <RestartOnIdle>false</RestartOnIdle>
+          </IdleSettings>
+          <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+          <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+          <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+          <AllowHardTerminate>false</AllowHardTerminate>
+          <AllowStartOnDemand>true</AllowStartOnDemand>
+          <Enabled>true</Enabled>
+          <Hidden>false</Hidden>
+          <ExecutionTimeLimit>PT1H</ExecutionTimeLimit>
+          <Priority>7</Priority>
+        </Settings>
+        <Actions Context="Author">
+          <Exec>
+            <Command>powershell.exe</Command>
+            <Arguments>-executionpolicy bypass -NoProfile -NonInteractive -file "#ScriptPath\TierLevelComputerManagement.ps1" -Scope Tier-0</Arguments>
+          </Exec>
+        </Actions>
+        <Triggers>
+          <CalendarTrigger>
+            <StartBoundary>2025-03-030T12:00:00</StartBoundary>
+            <Enabled>true</Enabled>
+            <ScheduleByDay>
+              <DaysInterval>1</DaysInterval>
+            </ScheduleByDay>
+            <Repetition>
+              <Interval>PT10M</Interval>
+              <Duration>P1D</Duration>
+              <StopAtDurationEnd>false</StopAtDurationEnd>
+            </Repetition>
+          </CalendarTrigger>
+        </Triggers>
+      </Task>
+    </Properties>
+  </TaskV2>
+  <TaskV2 clsid="{D8896631-B747-47a7-84A6-C155337F3BC8}" name="Tier 1 Computer Management" image="2" changed="2024-12-06 14:29:37" uid="{D9E485BC-145A-47BC-B6C0-A3457662E26A}" disabled="0">
+    <Properties action="U" name="Tier 1 Computer Management" runAs="NT AUTHORITY\System" logonType="S4U">
+      <Task version="1.2">
+        <RegistrationInfo>
+          <Author>Administrator</Author>
+          <Description>Manage Tier Level Isolation Tier 1 computer claim. This schedule task add Tier 1 computer objects to the Tier 1 computer group</Description>
+        </RegistrationInfo>
+        <Principals>
+          <Principal id="Author">
+            <UserId>NT AUTHORITY\System</UserId>
+            <LogonType>S4U</LogonType>
+            <RunLevel>HighestAvailable</RunLevel>
+          </Principal>
+        </Principals>
+        <Settings>
+          <IdleSettings>
+            <Duration>PT5M</Duration>
+            <WaitTimeout>PT1H</WaitTimeout>
+            <StopOnIdleEnd>false</StopOnIdleEnd>
+            <RestartOnIdle>false</RestartOnIdle>
+          </IdleSettings>
+          <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+          <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+          <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+          <AllowHardTerminate>false</AllowHardTerminate>
+          <AllowStartOnDemand>true</AllowStartOnDemand>
+          <Enabled>true</Enabled>
+          <Hidden>false</Hidden>
+          <ExecutionTimeLimit>PT1H</ExecutionTimeLimit>
+          <Priority>7</Priority>
+        </Settings>
+        <Actions Context="Author">
+          <Exec>
+            <Command>powershell.exe</Command>
+            <Arguments>-executionpolicy bypass -NoProfile -NonInteractive -file "#ScriptPath\TierLevelComputerManagement.ps1" -Scope Tier-1</Arguments>
+          </Exec>
+        </Actions>
+        <Triggers>
+          <CalendarTrigger>
+            <StartBoundary>2024-12-06T12:05:00</StartBoundary>
+            <Enabled>true</Enabled>
+            <ScheduleByDay>
+              <DaysInterval>1</DaysInterval>
+            </ScheduleByDay>
+            <Repetition>
+              <Interval>PT10M</Interval>
+              <Duration>P1D</Duration>
+              <StopAtDurationEnd>false</StopAtDurationEnd>
+            </Repetition>
+          </CalendarTrigger>
+        </Triggers>
+      </Task>
+    </Properties>
+  </TaskV2>
+  <TaskV2 clsid="{D8896631-B747-47a7-84A6-C155337F3BC8}" name="Tier 0 User Management" image="2" changed="2025-03-30 00:00:1" uid="{54CA3192-AF32-4C83-98BF-370533359B56}" disabled="1">
+    <Properties action="U" name="Tier 0 User Management" runAs="NT AUTHORITY\System" logonType="S4U">
+      <Task version="1.2">
+        <RegistrationInfo>
+          <Author>Tiering\Administrator</Author>
+          <Description>Manage Tier Level Isolation Tier 0 users</Description>
+        </RegistrationInfo>
+        <Principals>
+          <Principal id="Author">
+            <UserId>NT AUTHORITY\System</UserId>
+            <LogonType>S4U</LogonType>
+            <RunLevel>LeastPrivilege</RunLevel>
+          </Principal>
+        </Principals>
+        <Settings>
+          <IdleSettings>
+            <Duration>PT5M</Duration>
+            <WaitTimeout>PT1H</WaitTimeout>
+            <StopOnIdleEnd>false</StopOnIdleEnd>
+            <RestartOnIdle>false</RestartOnIdle>
+          </IdleSettings>
+          <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+          <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+          <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+          <AllowHardTerminate>false</AllowHardTerminate>
+          <AllowStartOnDemand>true</AllowStartOnDemand>
+          <Enabled>true</Enabled>
+          <Hidden>false</Hidden>
+          <ExecutionTimeLimit>PT1H</ExecutionTimeLimit>
+          <Priority>7</Priority>
+        </Settings>
+        <Triggers>
+          <CalendarTrigger>
+            <StartBoundary>2024-12-06T12:00:00</StartBoundary>
+            <Enabled>true</Enabled>
+            <ScheduleByDay>
+              <DaysInterval>1</DaysInterval>
+            </ScheduleByDay>
+            <RandomDelay>PT1H</RandomDelay>
+            <Repetition>
+              <Interval>PT10M</Interval>
+              <Duration>P1D</Duration>
+              <StopAtDurationEnd>false</StopAtDurationEnd>
+            </Repetition>
+          </CalendarTrigger>
+        </Triggers>
+        <Actions Context="Author">
+          <Exec>
+            <Command>powershell.exe</Command>
+            <Arguments>-executionpolicy bypass -NoProfile -NonInteractive -file "#ScriptPath\TierLevelUserManagement.ps1" -Scope Tier-0</Arguments>
+          </Exec>
+        </Actions>
+      </Task>
+    </Properties>
+  </TaskV2>
+  <TaskV2 clsid="{D8896631-B747-47a7-84A6-C155337F3BC8}" name="Tier 1 User Management" image="2" changed="2025-03-30 18:30:34" uid="{019C1A3C-7B7A-4C6B-8A81-5DF205198B84}" disabled="1">
+    <Properties action="U" name="Tier 1 User Management" runAs="NT AUTHORITY\System" logonType="S4U">
+      <Task version="1.2">
+        <RegistrationInfo>
+          <Author>Tiering\Administrator</Author>
+          <Description>Manage Tier 1 computer. This schedule task acce Tier 1 computer to the Tier 1 computer group</Description>
+        </RegistrationInfo>
+        <Principals>
+          <Principal id="Author">
+            <UserId>NT AUTHORITY\System</UserId>
+            <LogonType>S4U</LogonType>
+            <RunLevel>LeastPrivilege</RunLevel>
+          </Principal>
+        </Principals>
+        <Settings>
+          <IdleSettings>
+            <Duration>PT10M</Duration>
+            <WaitTimeout>PT1H</WaitTimeout>
+            <StopOnIdleEnd>true</StopOnIdleEnd>
+            <RestartOnIdle>false</RestartOnIdle>
+          </IdleSettings>
+          <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+          <DisallowStartIfOnBatteries>true</DisallowStartIfOnBatteries>
+          <StopIfGoingOnBatteries>true</StopIfGoingOnBatteries>
+          <AllowHardTerminate>false</AllowHardTerminate>
+          <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+          <AllowStartOnDemand>true</AllowStartOnDemand>
+          <Enabled>true</Enabled>
+          <Hidden>false</Hidden>
+          <RunOnlyIfIdle>false</RunOnlyIfIdle>
+          <WakeToRun>false</WakeToRun>
+          <ExecutionTimeLimit>PT1H</ExecutionTimeLimit>
+          <Priority>7</Priority>
+        </Settings>
+        <Triggers>
+          <CalendarTrigger>
+            <StartBoundary>2024-12-06T12:00:00</StartBoundary>
+            <Enabled>true</Enabled>
+            <ScheduleByDay>
+              <DaysInterval>1</DaysInterval>
+            </ScheduleByDay>
+            <RandomDelay>PT1H</RandomDelay>
+            <Repetition>
+              <Interval>PT10M</Interval>
+              <Duration>P1D</Duration>
+              <StopAtDurationEnd>false</StopAtDurationEnd>
+            </Repetition>
+          </CalendarTrigger>
+        </Triggers>
+        <Actions Context="Author">
+          <Exec>
+            <Command>powershell.exe</Command>
+            <Arguments>-executionpolicy bypass -NoProfile -NonInteractive -file "#ScriptPath\TierLevelUserManagement.ps1" -Scope Tier-1</Arguments>
+          </Exec>
+        </Actions>
+      </Task>
+    </Properties>
+  </TaskV2>
+  <TaskV2 clsid="{D8896631-B747-47a7-84A6-C155337F3BC8}" name="Change User context" image="2" changed="2025-03-30 18:27:19" uid="{832DD5A2-5AA7-4F99-8663-0D4855E5DA56}">
+    <Properties action="U" name="TierLevel Isolation Change User context" runAs="NT AUTHORITY\System" logonType="S4U">
+      <Task version="1.2">
+        <RegistrationInfo>
+          <Author>Administrator</Author>
+          <Description>This script change theidentity of the usermanagement script into the GMSA</Description>
+        </RegistrationInfo>
+        <Principals>
+          <Principal id="Author">
+            <UserId>NT AUTHORITY\System</UserId>
+            <LogonType>S4U</LogonType>
+            <RunLevel>LeastPrivilege</RunLevel>
+          </Principal>
+        </Principals>
+        <Settings>
+          <IdleSettings>
+            <Duration>PT5M</Duration>
+            <WaitTimeout>PT1H</WaitTimeout>
+            <StopOnIdleEnd>false</StopOnIdleEnd>
+            <RestartOnIdle>false</RestartOnIdle>
+          </IdleSettings>
+          <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+          <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+          <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+          <AllowHardTerminate>false</AllowHardTerminate>
+          <AllowStartOnDemand>true</AllowStartOnDemand>
+          <Enabled>true</Enabled>
+          <Hidden>false</Hidden>
+          <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+          <Priority>7</Priority>
+        </Settings>
+        <Actions Context="Author">
+          <Exec>
+            <Command>powershell.exe</Command>
+            <Arguments>-command "$GMSA = Get-ADServiceAccount -Identity '#GMSAName';$principal = New-ScheduledTaskPrincipal -LogonType Password -userID $GMSA.SID;Set-ScheduledTask 'Tier 0 User Management' -Principal $principal;Set-ScheduledTask 'Tier 1 User Management' -Principal $principal"</Arguments>
+          </Exec>
+                    <Exec>
+            <Command>powershell.exe</Command>
+            <Arguments>-command "$DCGrp  = (Get-AdDomain).DomainSID.Value + '-516';$DC = Get-ADGroupMember -Identity $DCGrp | Select-Object SamAccountName; Set-ADServiceAccount -Identity '#GMSAName' -PrincipalsAllowedToRetrieveManagedPassword $DC"</Arguments>
+          </Exec>
+        </Actions>
+        <Triggers>
+          <CalendarTrigger>
+            <StartBoundary>2024-12-06T12:00:00</StartBoundary>
+            <Enabled>true</Enabled>
+            <ScheduleByDay>
+              <DaysInterval>1</DaysInterval>
+            </ScheduleByDay>
+            <RandomDelay>PT1H</RandomDelay>
+            <Repetition>
+              <Interval>PT1H</Interval>
+              <Duration>P1D</Duration>
+              <StopAtDurationEnd>false</StopAtDurationEnd>
+            </Repetition>
+          </CalendarTrigger>
+          <EventTrigger>
+            <Enabled>true</Enabled>
+            <Subscription>&lt;QueryList&gt;&lt;Query Id="0" Path="System"&gt;&lt;Select Path="System"&gt;*[System[Provider[@Name='Microsoft-Windows-GroupPolicy'] and EventID=1502]]&lt;/Select&gt;&lt;/Query&gt;&lt;/QueryList&gt;</Subscription>
+          </EventTrigger>
+        </Triggers>
+      </Task>
+    </Properties>
+  </TaskV2>
 </ScheduledTasks>
