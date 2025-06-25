@@ -70,6 +70,11 @@ possibility of such damages
         added the -force parameter to the Set-TierLevelIsolationComputerGroup function. This will ensure that the group name is changed even if the group doesn't exists.
         added the -force parameter to the Set-TierLevelIsolationKerberosAuthenticationPolicy function. This will ensure that the group name is changed even if the Kerberos Authentication Policy  doesn't exists.
         The solution will now work in any case with a GMSA. 
+    Version 0.2.20250625
+        [Stephen Shkardoon]
+        Added GMSA validation. The script will not accept GMSA names longer than 15 characters.
+
+
 #>
 param(
     [switch]$InstallPSModuleOnly
