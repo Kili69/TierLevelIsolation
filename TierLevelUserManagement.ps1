@@ -64,6 +64,8 @@ possibility of such damages
     Version 0.2.20250623
         Error fixed if a configfile parameter is used
         added mulitiple exitcodes if the script terminates with an error
+    Version 0.2.20250714
+        Fixed a bug in the scope parameter handling
 
     exist codes:
         0x3E8 - The script terminated with a unexpected error
@@ -375,7 +377,7 @@ function ConvertTo-DistinguishedNames{
 # Main program starts here
 ##############################################################################################################################
 #script Version 
-$ScriptVersion = "0.2.20250623"
+$ScriptVersion = "0.2.20250714"
 try {   
     $eventLog = "Application"
     $source = "TierLevelIsolation"
@@ -422,7 +424,7 @@ try{
                     $config = Get-Content $DefaultConfigFile | ConvertFrom-Json  
                     #Write-Log -Message "Read config from $ConfigFile" -Severity Debug -EventID 1101          
                 } else {
-                    Write-EventLog -LogName "Application" -source $source -Message "TierLevle Isolation Can't find the configuration in $DefaultConfigFile or Active Directory" -EntryType Error -EventID 0
+                    Write-EventLog -LogName "Application" -source $source -Message "TierLevel Isolation Can't find the configuration in $DefaultConfigFile or Active Directory" -EntryType Error -EventID 0
                     return 0xe7
                 }
             }
@@ -431,7 +433,7 @@ try{
         if (Test-Path -Path $ConfigFile){
             $config = Get-Content $ConfigFile | ConvertFrom-Json 
             if ($null -eq $config){
-                Write-EventLog -LogName "Application" -source $source -Message "TierLevle Isolation Can't read the configuration from $ConfigFile" -EntryType Error -EventID 0
+                Write-EventLog -LogName "Application" -source $source -Message "TierLevel Isolation Can't read the configuration from $ConfigFile" -EntryType Error -EventID 0
                 return 0x3E9    
             }
         } else {
@@ -470,7 +472,7 @@ if ($null -eq $scope ){
 } 
 switch ($scope) {
     "Tier-0" { 
-        if ($config.scope -eq "Tier-1"){
+        if ($config.scope -eq "Tier1"){
             Write-Log -Message "The scope paramter $scope does not match to the configuration scope $($config.scope) the script is terminated" -Severity Error -EventID 2006
             return 0x3EA
         } else {
@@ -480,7 +482,7 @@ switch ($scope) {
         }
     }
     "Tier-1"{
-        if ($config.scope -eq "Tier-0"){
+        if ($config.scope -eq "Tier0"){
             Write-Log -Message "The scope paramter $scope does not match to the configuration scope $($config.scope) the script is terminated" -Severity Error -EventID 2006
             return 0x3EA
         } else {
