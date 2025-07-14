@@ -73,6 +73,8 @@ possibility of such damages
     Version 0.2.20250625
         [Stephen Shkardoon]
         Added GMSA validation. The script will not accept GMSA names longer than 15 characters.
+    Version 0.2.20250714
+        Fixing an error if only Tier 0 is implemented
 
 
 #>
@@ -307,7 +309,7 @@ function Get-SelectedDomains {
 #####################################################################################################################################################################################
 #region  Constanst and default value
 #####################################################################################################################################################################################
-$ScriptVersion = "0.2.202500331"
+$ScriptVersion = "0.2.20250714"
 try{
     Import-Module ActiveDirectory -ErrorAction Stop
     Import-Module GroupPolicy  -ErrorAction Stop
@@ -624,11 +626,16 @@ foreach ($domain in $config.Domains){
 }
 #endregion
 #Tier 0 server group is needed in any scope
-$Tier0ComputerGroup = Get-ADGroup -Filter "SamAccountName -eq '$($config.Tier0ComputerGroup)'" 
-$Tier1ComputerGroup = Get-ADGroup -Filter "SamAccountName -eq '$($config.Tier1ComputerGroup)'"
+if ($scope -eq "Tier0" -or $scope -eq "All-Tiers"){
+    $Tier0ComputerGroup = Get-ADGroup -Filter "SamAccountName -eq '$($config.Tier0ComputerGroup)'" 
+}
+if ($scope -eq "Tier1" -or $scope -eq "All-Tiers"){
+    $Tier1ComputerGroup = Get-ADGroup -Filter "SamAccountName -eq '$($config.Tier1ComputerGroup)'"    
+}
+
 $GroupWaitCounter = 0 #If the universal group is create via a DC who is not a GC, the group is not visible in the forest until the GC is replicated
 try {
-    if ($Null -eq $Tier0ComputerGroup ){
+    if (($Null -eq $Tier0ComputerGroup) -and (($scope -eq "Tier0") -or ($scope -eq "All-Tiers"))){
         New-ADGroup -Name $config.Tier0ComputerGroup -GroupScope Universal -Description $DescriptionT0ComputerGroup -Server $CurrentDC
         Write-Host "The group $($config.Tier0ComputerGroup) is created in $((Get-ADDomain).UsersContainer). Move the group the valid OU" -ForegroundColor Yellow
         $Tier0ComputerGroup = Get-ADgroup -Identity $config.Tier0ComputerGroup -Properties adminCount         
@@ -647,7 +654,7 @@ try {
             $Tier0ComputerGroup | Set-ADObject -replace @{adminCount=1}
         }        
     }
-    if (($null -eq $Tier1ComputerGroup ) -and (($scope -eq "Tier-1") -or ($scope -eq "All-Tiers"))){
+    if (($null -eq $Tier1ComputerGroup ) -and (($scope -eq "Tier1") -or ($scope -eq "All-Tiers"))){
         New-ADGroup -Name $config.Tier1ComputerGroup -GroupScope Universal -Description $DescriptionT1ComputerGroup -Server $CurrentDC
         $Tier1ComputerGroup = Get-ADGroup -Identity $config.Tier1ComputerGroup
         while (($Null -eq $Tier1ComputerGroup) -and ($GroupWaitCounter -lt 10)){
@@ -684,7 +691,7 @@ catch {
 }
 
 #Create the Kerberos Authentication Policy if required
-if (($scope -eq "Tier-0") -or ($scope -eq "All-Tiers")){
+if (($scope -eq "Tier0") -or ($scope -eq "All-Tiers")){
     try {
         if ([bool](Get-ADAuthenticationPolicy -Filter "Name -eq '$($config.T0KerbAuthPolName)'")){
             Write-Host "Kerberos Authentication Policy $($config.T0KerbAuthPolName) already exists. Please validate the policy manual" -ForegroundColor Yellow
@@ -713,7 +720,7 @@ if (($scope -eq "Tier-0") -or ($scope -eq "All-Tiers")){
         return
     }
 }
-if (($scope -eq "Tier-1") -or ($scope -eq "All-Tiers")){
+if (($scope -eq "Tier1") -or ($scope -eq "All-Tiers")){
     try {
         if ([bool](Get-ADAuthenticationPolicy -Filter "Name -eq '$($config.T1KerbAuthPolName)'")){
             Write-Host "Kerberos Authentication Policy $($config.T1KerbAuthPolName)) already exists. Please validate the policy manual" -ForegroundColor Yellow

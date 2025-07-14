@@ -133,6 +133,7 @@
     
             # ReleaseNotes of this module
             # ReleaseNotes = ''
+            RequireLicenseAcceptance = $false
     
         } # End of PSData hashtable
     

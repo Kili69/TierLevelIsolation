@@ -52,6 +52,8 @@ possibility of such damages
         New exit code added
     Version 0.2.20250625
         Removed inconsistency between this script and the TierLevelUserManagement.ps1 script reading the config file
+    Version 0.2.20250714
+        Fixed a bug in the scope parameter handling
 
     Exit codes:
         0x3E8 - a general error occured while readinb the configuration file
@@ -294,7 +296,7 @@ try {
     } else {
         Write-Log -Message "The group $($Tier0computerGroup.DistinguishedName) has $($Tier0computerGroup.Member.Count) members" -Severity Debug -EventID 1201
     }
-    if ($config.scope -ne "Tier-0"){
+    if ($config.scope -ne "Tier0"){
         $Tier1ComputerGroup = Get-ADGroup -Filter "SamAccountName -eq '$($config.Tier1ComputerGroup)'" -Properties member
         if ($null -eq $Tier1ComputerGroup){
             Write-Log -Message "Tiering computer management: Can't find the Tier 1 computer group $($config.Tier1ComputerGroup) in the current domain" -Severity Error -EventID 1202
