@@ -54,6 +54,8 @@ possibility of such damages
         Removed inconsistency between this script and the TierLevelUserManagement.ps1 script reading the config file
     Version 0.2.20250714
         Fixed a bug in the scope parameter handling
+    Version 0.2.20250716
+        Fixed a false positive error message if the Tier 1 management is disabled
 
     Exit codes:
         0x3E8 - a general error occured while readinb the configuration file
@@ -199,7 +201,7 @@ $DefaultConfigFile = "\\$CurrentDomainDNS\SYSVOL\$CurrentDomainDNS\scripts\TierL
 #endregion
 
 #script Version 
-$ScriptVersion = "0.2.20250625"
+$ScriptVersion = "0.2.20250716"
 #validate the event source TierLevelIsolation is registered in the application log. If the registration failes
 #the events will be written with the standard application event source to the event log. 
 try {   
@@ -264,8 +266,15 @@ catch {
 }
 #if the paramter $scope is set, it will overwrite the saved configuration
 if ($null -eq $scope ){
-    $scope = $config.scope
+    if ($config.scope -eq "Tier0"){
+        $scope = "Tier-0"
+    } elseif ($config.scope -eq "Tier1") {
+        $scope = "Tier-1"
+    } else {
+        $scope = "All-Tiers"
+    }
 }
+
 #endregion
 #region Manage log file
 [int]$MaxLogFileSize = 1048576 #Maximum size of the log file
@@ -286,7 +295,12 @@ if (Test-Path $LogFile) {
 }
 #endregion
 Write-Log -Message "Tier Isolation computer management $Scope version $ScriptVersion started. $($MyInvocation.Line) see $logFile " -Severity Information -EventID 1000
-#region validate the Tier computer groups exist. If not terminal the scirpt
+#region validate the Tier computer groups exist. If not terminal the script
+if ($scope -eq "Tier-1" -and $config.scope -ne "Tier1"){
+    Write-Log -Message "The TierLevelComputerManagement.ps1 script started with Tier 1 computer management scope. But the scope is disabled in the configuration file. The script will exit" -Severity Information -EventID 1205
+    Write-Output "The script started with Tier 1 computer management scope. But the scope is disabled in the configuration file. The script will exit"
+    return 0x0
+}
 try {
     $Tier0ComputerGroup = Get-ADGroup -Filter "SamAccountName -eq '$($config.Tier0ComputerGroup)'" -Properties member
     if ($null -eq $Tier0ComputerGroup) {

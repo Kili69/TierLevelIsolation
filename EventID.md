@@ -13,6 +13,7 @@
 |1202| Error         | Can't find Tier 1 comptuer group                                 |
 |1203| Error         | AD Web Service failed to connect                                 |
 |1204| Warning       | A Tier 0 computer object is not listed in the global catalog     |
+|1205| Information   | The script is started with Tier 1 scope but Tier 1 is disabled in the configuraiton file|
 |1300| Warning       | Missing sa Tier 0 computer OU                                    |
 |1301| Debug         | Count member in tier 0 group                                     |
 |1302| Information   | Adding a computer to Tier 0 computer group                       |
@@ -31,11 +32,12 @@
 |EventID|Severity    |Message|
 |---|---|---|
 |2000   | Information| Script started                                               |
+|2001   | Information| The script is started with Tier-1 paramter but Tier-1 is disabled in the configuraiton |
 |2002   | Error      | Missing Kerberos Authentication Policy                       |
 |2003   | Debug      | Failed to read the configuration form the config file        |
 |2004   | Error      | configuration File missing                                   |
 |2005   | Error      | Cannot read the configuration file                           |
-|2006   | Error      | Configurationfile paramter error                             |
+|2006   | Warning    | Configurationfile paramter error                             |
 |2008   | Debug      | Validating Schema admins                                     |
 |2009   | Debug      | Validating Enterprise admins                                 |
 |2010   | Debug      | successfully isolation of Tier 0 account                     |

@@ -306,6 +306,40 @@ function Get-SelectedDomains {
     return $SelectedDomains
 }
 
+function Install-TierLevelIsolationModule {
+    [cmdletBinding()]
+    param(
+        [Parameter(Mandatory=$false)]
+        [string] $targetServer = $env:COMPUTERNAME,
+        [Parameter(Mandatory=$false)]
+        [switch]$update
+    )
+    try{
+        $ProgramFilesPath = Invoke-Command -ComputerName $targetServer -ScriptBlock { $Env:ProgramFiles }
+        $ProgramFilesPath = "\\$targetServer\$($ProgramFilesPath -replace ":","$")"
+        $ModulePath = Join-Path "$ProgramFilesPath\WindowsPowerShell\Modules" "TierLevelIsolation"
+        if (Test-Path $ModulePath -and -not $update) {
+            Write-Host "The TierLevelIsolation module is already installed" -ForegroundColor Green
+        } else {
+            Write-Host "Installing the TierLevelIsolation module" -ForegroundColor Green        
+            New-Item -Path $ModulePath -ItemType Directory -ErrorAction Stop | Out-Null
+            copy-item -Path "$PSScriptRoot\module\*" -Destination $ModulePath -Force -recurse -ErrorAction Stop
+            Write-Host "The TierLevelIsolation module is installed" -ForegroundColor Green
+
+        }
+        if ($null -eq (Get-Module -Name TierLevelIsolation)){
+            Write-Host "Loading the TierLevelIsolation module" -ForegroundColor Green
+            Import-module TierLevelIsolation -ErrorAction Stop
+        } else {
+            Write-Host "The TierLevelIsolation module is already loaded" -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "Failed to install the TierLevelIsolation module" -ForegroundColor Yellow
+        Write-Host $Error[0].Exception.Message -ForegroundColor Yellow
+        exit
+    }
+}
+
 #####################################################################################################################################################################################
 #region  Constanst and default value
 #####################################################################################################################################################################################
@@ -575,7 +609,7 @@ foreach ($domain in $config.Domains){
             }
         }
     }
-    if (($scope -eq "Tier-1") -or ($scope -eq "All-Tiers")){
+    if (($scope -eq "Tier1") -or ($scope -eq "All-Tiers")){
         foreach ($OU in $config.Tier1ComputerPath){
             if ($OU -like "*DC=*"){
                 if ([regex]::Match($OU,$RegExDNDomain).Value -eq $DomainDN){
@@ -800,7 +834,7 @@ try {
     $ScheduleTaskRaw = $ScheduleTaskRaw.Replace("#GMSAName", $GMSAName)
     [XML]$ScheduleTaskXML = $ScheduleTaskRaw
     switch ($scope){ 
-        "Tier-0" {
+        "Tier0" {
             #Disalbe the Tier 0 server management tasks. We will only manage the Tier 1 server and user management tasks
             $Task = $ScheduleTaskXML.ScheduledTasks.TaskV2 | Where-Object {$_.UID -eq '{D9E485BC-145A-47BC-B6C0-A3457662E26A}'}
             $Task.disabled = "1"  
@@ -808,7 +842,7 @@ try {
             $Task = $ScheduleTaskXML.ScheduledTasks.TaskV2 | Where-Object {$_.UID -eq '{832DD5A2-5AA7-4F99-8663-0D4855E5DA56}'}
             $Task.disabled = "1"
           }
-        "Tier-1" {
+        "Tier1" {
             #Disabling Tier 0 server management tasks. We will only manage the Tier 1 server and user management tasks
             $Task = $ScheduleTaskXML.ScheduledTasks.TaskV2 | Where-Object {$_.UID -eq '{B1168190-7E2C-4177-9391-B1FFBCDF4774}'}
             $Task.disabled = "1"
@@ -857,3 +891,17 @@ catch{
     Write-Host $error[0]
 }
 #endregion 
+#region install module
+Foreach ($domain in $config.Domains){
+    foreach ($domainController in (Get-ADDomainController -server $domain -Filter *)){
+        Write-Host "Validating the TierLevelIsolation module on the domain controller $($domainController.HostName)" -ForegroundColor Green
+        try{
+            Install-TierLevelIsolationModule -targetServer $domainController.HostName
+        } catch {
+            Write-Host "Failed to install the TierLevelIsolation module on the domain controller $($domainController.HostName) in the domain $domain" -ForegroundColor Red
+            Write-Host $Error[0].Exception.Message -ForegroundColor Red
+        }
+    }
+}   
+#endregion
+Write-Host "Tier Level isolation setup script is finished" -ForegroundColor Green

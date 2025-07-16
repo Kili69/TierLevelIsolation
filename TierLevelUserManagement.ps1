@@ -405,7 +405,16 @@ $PrivlegeDomainSid = @(
 #   "527" #Enterprise Key Admins
 )
 #endregion
-
+#if the paramter $scope is set, it will overwrite the saved configuration
+if ($null -eq $scope ){
+    if ($config.scope -eq "Tier0"){
+        $scope = "Tier-0"
+    } elseif ($config.scope -eq "Tier1") {
+        $scope = "Tier-1"
+    } else {
+        $scope = "All-Tiers"
+    }
+}
 
 #region read configuration
 try{
@@ -466,14 +475,16 @@ if (Test-Path $LogFile) {
 #endregion
 Write-Log -Message "Tier Isolation user management $Scope version $ScriptVersion started. see $LogFile for more details" -Severity Information -EventID 2000
 #if the paramter $scope is set, it will overwrite the saved configuration
+if ($scope -eq "Tier-1" -and $config.scope -ne "Tier1"){
+    Write-Log -Message "The TierLevelUserManagement.ps1 script started with Tier 1 user management scope. But the scope is disabled in the configuration file. The script will exit" -Severity Information -EventID 2001
+    Write-Output "The script started with Tier 1 computer user scope. But the scope is disabled in the configuration file. The script will exit"
+    return 0x0
+}
 
-if ($null -eq $scope ){
-    $scope = $config.scope
-} 
 switch ($scope) {
     "Tier-0" { 
         if ($config.scope -eq "Tier1"){
-            Write-Log -Message "The scope paramter $scope does not match to the configuration scope $($config.scope) the script is terminated" -Severity Error -EventID 2006
+            Write-Log -Message "The scope paramter $scope does not match to the configuration scope $($config.scope) the script is terminated" -Severity Warning-EventID 2006
             return 0x3EA
         } else {
             $config.Tier0UsersPath = ConvertTo-DistinguishedNames -DomainsDNS $config.Domains -DistinguishedNames $config.Tier0UsersPath
