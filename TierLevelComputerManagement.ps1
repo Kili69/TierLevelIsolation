@@ -56,6 +56,8 @@ possibility of such damages
         Fixed a bug in the scope parameter handling
     Version 0.2.20250716
         Fixed a false positive error message if the Tier 1 management is disabled
+    Version 0.2.20250728
+        Improved logging the log file contains the process ID of the script
 
     Exit codes:
         0x3E8 - a general error occured while readinb the configuration file
@@ -111,7 +113,7 @@ function Write-Log {
 
 
     #Format the log message and write it to the log file
-    $LogLine = "$(Get-Date -Format o), [$Severity],[$EventID], $Message"
+    $LogLine = "$(Get-Date -Format o),$($PID), [$Severity],[$EventID], $Message"
     Add-Content -Path $LogFile -Value $LogLine 
     #If the severity is not debug write the even to the event log and format the output
     switch ($Severity) {

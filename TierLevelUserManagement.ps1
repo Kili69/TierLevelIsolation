@@ -66,6 +66,8 @@ possibility of such damages
         added mulitiple exitcodes if the script terminates with an error
     Version 0.2.20250714
         Fixed a bug in the scope parameter handling
+    Version 0.2.20250728
+        Improved logging the log file contains the process ID of the script
 
     exist codes:
         0x3E8 - The script terminated with a unexpected error
@@ -120,7 +122,7 @@ function Write-Log {
     )
 
     #Format the log message and write it to the log file
-    $LogLine = "$(Get-Date -Format o), [$Severity],[$EventID], $Message"
+    $LogLine = "$(Get-Date -Format o),$($PID), [$Severity],[$EventID], $Message"
     if ($LogFile -ne $null) { #Safety check to make sure logfile isnt null
         Add-Content -Path $LogFile -Value $LogLine
     }
