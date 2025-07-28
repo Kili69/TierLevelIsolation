@@ -198,12 +198,13 @@ function Get-UnexpectedComputerObjects{
 $CurrentDomainDNS = (Get-ADDomain).DNSRoot
 #The default configuration file is located in the SYSVOL path of the current domain
 $DefaultConfigFile = "\\$CurrentDomainDNS\SYSVOL\$CurrentDomainDNS\scripts\TierLevelIsolation.config"
+$config = $null #initialize the config variable
 #The default path to the configuration in the Active Directory configuration partition
 #$ADconfigurationPath = "CN=Tier Level Isolation,CN=Services,$((Get-ADRootDSE).configurationNamingContext)"
 #endregion
 
 #script Version 
-$ScriptVersion = "0.2.20250716"
+$ScriptVersion = "0.2.20250728"
 #validate the event source TierLevelIsolation is registered in the application log. If the registration failes
 #the events will be written with the standard application event source to the event log. 
 try {   
@@ -366,10 +367,10 @@ foreach ($Domain  in $config.Domains) {
                 }
             }
             catch [Microsoft.ActiveDirectory.Management.ADException]{
-                Write-Log "Global catalog not updated. Wait for GP update $($Error[0].InvocationInfo.ScriptLineNumber)" -Severity Warning -EventID 1204
+                Write-Log "Working on $domain : Global catalog not updated. Wait for GP update $($Error[0].InvocationInfo.ScriptLineNumber)" -Severity Warning -EventID 1204
             }
             catch{
-                Write-Log "A unexpected error has occured $($Error[0].InvocationInfo.ScriptLineNumber) while updating $Tier0ComputerGroup" -Severity Error -EventID 1003
+                Write-Log "A unexpected error has occured in line $($Error[0].InvocationInfo.ScriptLineNumber) while updating $Tier0ComputerGroup for domain $domain" -Severity Error -EventID 1003
             }
         }
         #endregion
@@ -400,15 +401,15 @@ foreach ($Domain  in $config.Domains) {
                 }
             }
             catch [Microsoft.ActiveDirectory.Management.ADException]{
-                Write-Log "Global catalog not updated. Wait for GP update $($Error[0].InvocationInfo.ScriptLineNumber)" -Severity Warning -EventID 1404
+                Write-Log "Global catalog not updated while working on $domain . Wait for GP update $($Error[0].InvocationInfo.ScriptLineNumber)" -Severity Warning -EventID 1404
             }
             catch{
-                Write-Log "A unexpected error has occured while managing Tier 1 computersgroups $error" -Severity Error -EventID 1402
+                Write-Log "A unexpected error has occured while managing Tier 1 computersgroups $($error[0]) on $domain" -Severity Error -EventID 1402
             }
         }
     }
     catch [Microsoft.ActiveDirectory.Management.ADServerDownException] {
-        Write-Log "The AD WebService is down or not reachable $domain $($error[0].InvocationInfo.ScriptLineNumber)" -Severity Error -EventID 1004
+        Write-Log "The AD WebService is down or not reachable for $domain script line $($error[0].InvocationInfo.ScriptLineNumber)" -Severity Error -EventID 1004
     }
 }
 # if the Tier 0 computer group is not empty, check if the computer objects are in the correct OU
