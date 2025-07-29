@@ -39,7 +39,7 @@ possibility of such damages
         If a user is removed from a privileged group, the adminCount attribute will be removed from the user
         The script will check if the user is located in a service account OU. If the user is located in a service account OU, the user will not be removed from the privileged group
     Version 20241223
-        documentaiton update  
+        documentation update  
     Version 0.2.20240218
         Documentation update
 
@@ -52,27 +52,30 @@ possibility of such damages
         Fixed a bug adding the user to the protected users group. The script will now check if the user is already a member of the protected users group
         and add the user to the protected users group.
     Version 0.2.20250320
-        Default configuration file name changed from tiering.config to TierLevlIsolation.config
+        Default configuration file name changed from tiering.config to TierLevelIsolation.config
     Version 0.2.20250327
         Bug fix: The parameter $configFile default value fixed
     Version 0.2.20250410
-        Bug Fix in ValidateAndRemoveUser function. the function now recognize the relative DN of privielged users
+        Bug Fix in ValidateAndRemoveUser function. the function now recognize the relative DN of privileged users
     Version 0.2.20250423
         If a alternative logfile path in the configuration file is not set, the script will use the local appdata path of the user running the script.
     Version 0.2.20250619
         Fixed a error writing to event log
     Version 0.2.20250623
         Error fixed if a configfile parameter is used
-        added mulitiple exitcodes if the script terminates with an error
+        added multiple exit codes if the script terminates with an error
     Version 0.2.20250714
         Fixed a bug in the scope parameter handling
     Version 0.2.20250728
         Improved logging the log file contains the process ID of the script
+    Version 0.2.20250729
+        Typo fixed and formatting improved
+
 
     exist codes:
         0x3E8 - The script terminated with a unexpected error
         0x3E9 - The configuration file could not be found
-        0x3EA - The scope paramter does not match to the configuration scope
+        0x3EA - The scope parameter does not match to the configuration scope
         0x3EB - The configuration file could not be found
 
 
@@ -90,7 +93,7 @@ param(
 .SYNOPSIS
     Write event to the event log and the debug log file
 .DESCRIPTION
-    This funtion will write all events to the log file. If the severity is debug the message will only be written to the debuig log file
+    This function will write all events to the log file. If the severity is debug the message will only be written to the debug log file
     This function replaced the write-eventlog and write-host cmdlets in this script
 .OUTPUTS
     None
@@ -123,14 +126,14 @@ function Write-Log {
 
     #Format the log message and write it to the log file
     $LogLine = "$(Get-Date -Format o),$($PID), [$Severity],[$EventID], $Message"
-    if ($LogFile -ne $null) { #Safety check to make sure logfile isnt null
+    if ($LogFile -ne $null) { #Safety check to make sure logfile isn't null
         Add-Content -Path $LogFile -Value $LogLine
     }
     #If the severity is not debug write the even to the event log and format the output
     switch ($Severity) {
         'Error' { 
             Write-Host $Message -ForegroundColor Red
-            if ($LogFile -ne $null) { #Safety check to make sure logfile isnt null
+            if ($LogFile -ne $null) { #Safety check to make sure logfile isn't null
                 Add-Content -Path $LogFile -Value $Error[0].ScriptStackTrace 
             }
             Write-EventLog -LogName $eventLog -source $source -EventId $EventID -EntryType Error -Message $Message -Category 0
@@ -156,13 +159,13 @@ function Write-Log {
 .PARAMETER DomainDNS
     The domain DNS Name
 .PARAMETER OrgUnits
-    Is a array of OU distinguishednames of the Tier level users
+    Is a array of OU distinguished names of the Tier level users
 .PARAMETER AddProtectedUsersGroup
     Is this parameter is true the user will be added to the protected users
 .PARAMETER KerbAuthPolName
     Is the name of the Kerberos Authentication Policy
 .OUTPUTS 
-    $True if all users in the privilegd OU are marked as sensitive and the kerberos authentication policy is applied
+    $True if all users in the privileged OU are marked as sensitive and the kerberos authentication policy is applied
     $False
 #>
 function Set-TierLevelIsolation{
@@ -176,11 +179,11 @@ function Set-TierLevelIsolation{
         [Parameter (Mandatory = $true)]
         [string]$KerbAuthPolName
     )
-    $retval = $false
+    $RetVal = $false
     try {
         Write-Log -Message "Start Set-TierLevelIsolation for $DomainDNS -ProtectedUsersGroup $AddProtectedUsersGroup" -Severity Debug -EventID 2014
         $DomainDN = (Get-ADDomain -Server $DomainDNS).DistinguishedName
-        #Validate the Kerboers Authentication policy exists. If not terminate the script with error code 0xA3. 
+        #Validate the Kerberos Authentication policy exists. If not terminate the script with error code 0xA3. 
         $KerberosAuthenticationPolicy = Get-ADAuthenticationPolicy -Filter "Name -eq '$($KerbAuthPolName)'"
         if ($null -eq $KerberosAuthenticationPolicy){
             Write-Log -Message "Tier 0 Kerberos Authentication Policy '$KerberosPolicyName' not found on AD" -Severity Error -EventID 2101
@@ -210,25 +213,25 @@ function Set-TierLevelIsolation{
                             #Protected user group validation
                             if ($AddProtectedUsersGroup -and ($oProtectedUsersGroup.member -notcontains $user.DistinguishedName)){
                                 Add-ADGroupMember -Identity $oProtectedUsersGroup $user -Server $DomainDNS
-                                Write-Log "User $($user.DistinguishedName) is addeded to protected users in $Domain" -Severity Information -EventID 2106
+                                Write-Log "User $($user.DistinguishedName) is added to protected users in $Domain" -Severity Information -EventID 2106
                             }
                         }
                     }
                 }
             }
         }
-        $retval = $true
+        $RetVal = $true
     }
     catch [Microsoft.ActiveDirectory.Management.ADException]{
         Write-Log "a access denied error occurs while changing $user attribute" -Severity Error -EventID 2107
     }
     catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException]{
-        Write-Log "Cannot enumerrate users" -Severity Error -EventID 2108
+        Write-Log "Cannot enumerate users" -Severity Error -EventID 2108
     }
     catch{
-        Write-Log "A unexpected error occured $($error[0])" -Severity Error -EventID 2109
+        Write-Log "A unexpected error occurs $($error[0])" -Severity Error -EventID 2109
     } 
-    return $retval  
+    return $RetVal  
 }
 
 <#
@@ -243,9 +246,9 @@ function Set-TierLevelIsolation{
 .PARAMETER DomainDNSName
     -is the domain DNS name of the AD object
 .PARAMETER PrivilegedOU
-    -is a array of Distinguishednames to the privileged user OUs
+    -is a array of distinguished names to the privileged user OUs
 .PARAMETER ServiceAccountPath
-    -is a array of distinguishednames to the service account OU
+    -is a array of distinguished names to the service account OU
 .EXAMPLE
     validateAndRemoveUser -SID "S-1-5-<domain sid>-<group sid>" -DomainDNS contoso.com
 
@@ -291,13 +294,13 @@ function validateAndRemoveUser{
         return
     }
     #walk through all members of the group and check this member is a valid user or group
-    foreach ($Groupmember in $Group.members)
+    foreach ($GroupMember in $Group.members)
     {
-        $member = Get-ADObject -Filter {DistinguishedName -eq $Groupmember} -Properties * -server "$($DomainDNSName):3268"
+        $member = Get-ADObject -Filter {DistinguishedName -eq $GroupMember} -Properties * -server "$($DomainDNSName):3268"
         switch ($member.ObjectClass){
             "user"{
                 if (($member.ObjectSid.value   -notlike "*-500")                              -and ` #ignore if the member is Built-In Administrator
-                    ($member.objectSid.value   -notlike "*-512")                              -and ` #ignoer if the member is Domain Admins group
+                    ($member.objectSid.value   -notlike "*-512")                              -and ` #ignore if the member is Domain Admins group
                     ($member.ObjectSid.value   -notlike "*-518")                              -and ` #ignore if the member is Schema Admins
                     ($member.ObjectSid.Value   -notlike "*-519")                              -and ` #ignore if the member is Enterprise Admins
                     ($member.objectSid.Value   -notlike "*-520")                              -and ` #ignore if the member is Group Policy Creator
@@ -327,16 +330,16 @@ function validateAndRemoveUser{
                                     Write-Log -Message $Error[0].GetType().Name -Severity Error -EventID 2204
                                 }
                             } else {
-                                Write-Log -Message "The user $($member.DistinguishedName) is located in a Service account OU and will not be removed from the privileged groups $($Group.Distiguishedname)" -EventID 2205 -Severity Debug
+                                Write-Log -Message "The user $($member.DistinguishedName) is located in a Service account OU and will not be removed from the privileged groups $($Group.DistiguishedName)" -EventID 2205 -Severity Debug
                             }
                         } else {
-                            Write-Log -Message "The user $($member.Distinguishedname) is member of a privileged user OU" -Severity Debug -EventID 2206
+                            Write-Log -Message "The user $($member.DistinguishedName) is member of a privileged user OU" -Severity Debug -EventID 2206
                         }
                     }
                 }
             "group"{
                 $MemberDomainDN = [regex]::Match($member.DistinguishedName,"DC=.*").value
-                $MemberDNSroot = (Get-ADObject -Filter "ncName -eq '$MemberDomainDN'" -SearchBase (Get-ADForest).Partitionscontainer -Properties dnsRoot).dnsRoot
+                $MemberDNSroot = (Get-ADObject -Filter "ncName -eq '$MemberDomainDN'" -SearchBase (Get-ADForest).PartitionsContainer -Properties dnsRoot).dnsRoot
                 validateAndRemoveUser -SID $member.ObjectSid.Value -DomainDNSName $MemberDNSroot -PrivilegedOU $PrivilegedOU -ServiceAccountPath $ServiceAccountPath
             }
         }
@@ -379,7 +382,7 @@ function ConvertTo-DistinguishedNames{
 # Main program starts here
 ##############################################################################################################################
 #script Version 
-$ScriptVersion = "0.2.20250714"
+$ScriptVersion = "0.2.20250729"
 try {   
     $eventLog = "Application"
     $source = "TierLevelIsolation"
@@ -389,25 +392,24 @@ try {
     }
 }
 catch {
-    Write-EventLog -logname $eventLog -source "Application" -EventId 0 -EntryType Error -Message "The event source $source could not be created. The script will use the default event source Application"
+    Write-EventLog -LogName $eventLog -source "Application" -EventId 0 -EntryType Error -Message "The event source $source could not be created. The script will use the default event source Application"
     $source = "Application"
 }
-#region constantes
-$config = $null
+#region constant$config = $null
 #the current domain must contains the Tier level user groups
 $CurrentDomainDNS = (Get-ADDomain).DNSRoot
 $DefaultConfigFile = "\\$CurrentDomainDNS\SYSVOL\$CurrentDomainDNS\scripts\TierLevelIsolation.config"
 #$ADconfigurationPath = "CN=Tier Level Isolation,CN=Services,$((Get-ADRootDSE).configurationNamingContext)"
 
 # relative SID of privileged groups
-$PrivlegeDomainSid = @(
+$PrivilegeDomainSid = @(
     "512", #Domain Admins
     "520", #Group Policy Creator Owner
     "522" #Cloneable Domain Controllers
 #   "527" #Enterprise Key Admins
 )
 #endregion
-#if the paramter $scope is set, it will overwrite the saved configuration
+#if the parameter $scope is set, it will overwrite the saved configuration
 if ($null -eq $scope ){
     if ($config.scope -eq "Tier0"){
         $scope = "Tier-0"
@@ -421,7 +423,7 @@ if ($null -eq $scope ){
 #region read configuration
 try{
     #if the configuration file is not set, the script will search for the configuration in the Active Directory configuration partition or on the default path
-    #if the configuration is avaiable in the Active Directory configuration partition, the script will read the configuration from the AD
+    #if the configuration is available in the Active Directory configuration partition, the script will read the configuration from the AD
     #otherwise try to use the default configuration file
     if ($ConfigFile -eq '') {
 #        if ($null -ne (Get-ADObject -Filter "DistinguishedName -eq '$ADconfigurationPath'")){
@@ -429,7 +431,7 @@ try{
 #            Write-host "AD config lesen noch implementieren" -ForegroundColor Red -BackgroundColor DarkGray
 #            return
  #       } else {
-            #last resort if the configfile paramter is not available and no configuration is stored in the AD. check for the dafault configuration file
+            #last resort if the configfile parameter is not available and no configuration is stored in the AD. check for the default configuration file
             if ($null -eq $config){
                 if ((Test-Path -Path $DefaultConfigFile)){
                     $config = Get-Content $DefaultConfigFile | ConvertFrom-Json  
@@ -465,7 +467,7 @@ if ($null -eq $config.LogPath -or $config.LogPath -eq ""){
     $LogFile = "$($config.LogPath)\$($MyInvocation.MyCommand).log" #Name and path of the log file
 }
 
-#rename existing log files to *.sav if the currentlog file exceed the size of $MaxLogFileSize
+#rename existing log files to *.sav if the current log file exceed the size of $MaxLogFileSize
 if (Test-Path $LogFile) {
     if ((Get-Item $LogFile ).Length -gt $MaxLogFileSize) {
         if (Test-Path "$LogFile.sav") {
@@ -476,7 +478,7 @@ if (Test-Path $LogFile) {
 }
 #endregion
 Write-Log -Message "Tier Isolation user management $Scope version $ScriptVersion started. see $LogFile for more details" -Severity Information -EventID 2000
-#if the paramter $scope is set, it will overwrite the saved configuration
+#if the parameter $scope is set, it will overwrite the saved configuration
 if ($scope -eq "Tier-1" -and $config.scope -ne "Tier1"){
     Write-Log -Message "The TierLevelUserManagement.ps1 script started with Tier 1 user management scope. But the scope is disabled in the configuration file. The script will exit" -Severity Information -EventID 2001
     Write-Output "The script started with Tier 1 computer user scope. But the scope is disabled in the configuration file. The script will exit"
@@ -486,7 +488,7 @@ if ($scope -eq "Tier-1" -and $config.scope -ne "Tier1"){
 switch ($scope) {
     "Tier-0" { 
         if ($config.scope -eq "Tier1"){
-            Write-Log -Message "The scope paramter $scope does not match to the configuration scope $($config.scope) the script is terminated" -Severity Warning-EventID 2006
+            Write-Log -Message "The scope parameter $scope does not match to the configuration scope $($config.scope) the script is terminated" -Severity Warning-EventID 2006
             return 0x3EA
         } else {
             $config.Tier0UsersPath = ConvertTo-DistinguishedNames -DomainsDNS $config.Domains -DistinguishedNames $config.Tier0UsersPath
@@ -496,7 +498,7 @@ switch ($scope) {
     }
     "Tier-1"{
         if ($config.scope -eq "Tier0"){
-            Write-Log -Message "The scope paramter $scope does not match to the configuration scope $($config.scope) the script is terminated" -Severity Error -EventID 2006
+            Write-Log -Message "The scope parameter $scope does not match to the configuration scope $($config.scope) the script is terminated" -Severity Error -EventID 2006
             return 0x3EA
         } else {
             $config.Tier1UsersPath = ConvertTo-DistinguishedNames -DomainsDNS $config.Domains -DistinguishedNames $config.Tier1UsersPath
@@ -542,7 +544,7 @@ foreach ($Domain in $config.Domains){
     #if the PrivilegedGroupsCleanUp is set to true, the script will remove all users from the privileged groups
     if ($config.PrivilegedGroupsCleanUp -and $scope -ne "Tier-1"){
         $DomainSID = (Get-ADDomain -server $Domain).DomainSID
-        foreach ($relativeSid in $PrivlegeDomainSid) {
+        foreach ($relativeSid in $PrivilegeDomainSid) {
             validateAndRemoveUser -SID "$DomainSID-$RelativeSid" -DomainDNSName $Domain -PrivilegedOU $config.Tier0UsersPath -ServiceAccountPath $config.Tier0ServiceAccountPath
         }
         #Backup Operators
@@ -563,6 +565,6 @@ if ($config.PrivilegedGroupsCleanUp -and $scope -ne "Tier-1"){
     $forestSID = (Get-ADDomain -Server $forestDNS).DomainSID.Value
     Write-Log "searching for unexpected users in schema admins" -Severity Debug -EventID 2008
     validateAndRemoveUser -SID "$forestSID-518" -DomainDNSName $forestDNS -PrivilegedOU $config.Tier0UsersPath -ServiceAccountPath $config.Tier0ServiceAccountPath
-    Write-Log "searching for unexpteded users in enterprise admins" -Severity Debug -EventID 2009
+    Write-Log "searching for unexpected users in enterprise admins" -Severity Debug -EventID 2009
     validateAndRemoveUser -SID "$forestSID-519" -DomainDNSName $forestDNS -PrivilegedOU $config.Tier0UsersPath -ServiceAccountPath $config.Tier0ServiceAccountPath
 }

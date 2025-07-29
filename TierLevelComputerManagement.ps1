@@ -25,7 +25,7 @@ possibility of such damages
 .OUTPUTS 
     None
 .PARAMETER ConfigFile
-    This is the full quaified path to the configuration file. If this parameter is empty, the script will
+    This is the full qualified path to the configuration file. If this parameter is empty, the script will
     search for the configuration in Active Directory or on the SYSVOL path
 .PARAMETER scope
     defines which scope will be used. Possible scopes are:
@@ -37,8 +37,8 @@ possibility of such damages
         Initial Version
     Version[AL] 20241223
         Documentation update
-                The script creates a debug log in the user data app folder. This log file contains additional debug informations
-        Important events are writte to the application log
+                The script creates a debug log in the user data app folder. This log file contains additional debug information
+        Important events are written to the application log
     Version 0.2.20250304
         Provide logfile in the start message
     Version 0.2.20250314
@@ -48,7 +48,7 @@ possibility of such damages
     Version 0.2.20250329
         The script consumes the log path parameter from the configfile
     Version 0.2.20250623
-        A errory fixed is the config file is not available or incorrect format
+        A error fixed is the config file is not available or incorrect format
         New exit code added
     Version 0.2.20250625
         Removed inconsistency between this script and the TierLevelUserManagement.ps1 script reading the config file
@@ -58,9 +58,11 @@ possibility of such damages
         Fixed a false positive error message if the Tier 1 management is disabled
     Version 0.2.20250728
         Improved logging the log file contains the process ID of the script
+    Version 0.2.20250729
+        Typo fixed and formatting improved
 
     Exit codes:
-        0x3E8 - a general error occured while readinb the configuration file
+        0x3E8 - a general error occur while reading the configuration file
         0x3E9 - the configuration file is not available or has an incorrect format
         0x3EA - format error in the configuration file
         0x3EB - the configuration file is not available 
@@ -80,7 +82,7 @@ param(
 .SYNOPSIS
     Write event to the event log and the debug log file
 .DESCRIPTION
-    This funtion will write all events to the log file. If the severity is debug the message will only be written to the debuig log file
+    This function will write all events to the log file. If the severity is debug the message will only be written to the debug log file
     This function replaced the write-eventlog and write-host cmdlets in this script
 .OUTPUTS
     None
@@ -141,7 +143,7 @@ function Write-Log {
 .OUTPUTS
     A array of unexpected computers
 .PARAMETER OUList
-    A array of distunguished OU names
+    A array of distinguished OU names
 .PARAMETER MemberDNList
     A array Distinguished computer objects
 .PARAMETER DomainDnsList
@@ -193,7 +195,7 @@ function Get-UnexpectedComputerObjects{
 # Main program starts here
 ##############################################################################################################################
 
-#region constantes
+#region constants
 #Is the current domain DNS name.
 $CurrentDomainDNS = (Get-ADDomain).DNSRoot
 #The default configuration file is located in the SYSVOL path of the current domain
@@ -204,8 +206,8 @@ $config = $null #initialize the config variable
 #endregion
 
 #script Version 
-$ScriptVersion = "0.2.20250728"
-#validate the event source TierLevelIsolation is registered in the application log. If the registration failes
+$ScriptVersion = "0.2.20250729"
+#validate the event source TierLevelIsolation is registered in the application log. If the registration fails
 #the events will be written with the standard application event source to the event log. 
 try {   
     $eventLog = "Application"
@@ -216,7 +218,7 @@ try {
     }
 }
 catch {
-    Write-EventLog -logname $eventLog -source "Application" -EventId 0 -EntryType Error -Message "The event source $source could not be created. The script will use the default event source Application"
+    Write-EventLog -LogName $eventLog -source "Application" -EventId 0 -EntryType Error -Message "The event source $source could not be created. The script will use the default event source Application"
     $source = "Application"
 }
 #using the next closest global catalog server
@@ -225,7 +227,7 @@ $GlobalCatalog = (Get-ADDomainController -Discover -Service GlobalCatalog -NextC
 #region read configuration
 try{
     #if the configuration file is not set, the script will search for the configuration in the Active Directory configuration partition or on the default path
-    #if the configuration is avaiable in the Active Directory configuration partition, the script will read the configuration from the AD
+    #if the configuration is available in the Active Directory configuration partition, the script will read the configuration from the AD
     #otherwise try to use the default configuration file
     if ($ConfigFile -eq '') {
 <#        if ($null -ne (Get-ADObject -Filter "DistinguishedName -eq '$ADconfigurationPath'")){
@@ -233,13 +235,13 @@ try{
             Write-host "AD config lesen noch implementieren" -ForegroundColor Red -BackgroundColor DarkGray
             return
         } else {
-            #last resort if the configfile paramter is not available and no configuration is stored in the AD. check for the dafault configuration file
+            #last resort if the configfile parameter is not available and no configuration is stored in the AD. check for the default configuration file
 #>            if ($null -eq $config){
                 if ((Test-Path -Path $DefaultConfigFile)){
                     $config = Get-Content $DefaultConfigFile | ConvertFrom-Json  
                     #Write-Log -Message "Read config from $ConfigFile" -Severity Debug -EventID 1101          
                 } else {
-                    Write-EventLog -LogName "Application" -source $source -Message "TierLevle Isolation Can't find the configuration in $DefaultConfigFile or Active Directory" -Severity Error -EventID 0
+                    Write-EventLog -LogName "Application" -source $source -Message "TierLevel Isolation Can't find the configuration in $DefaultConfigFile or Active Directory" -Severity Error -EventID 0
                     return 0xe7
                 }
             }
@@ -250,13 +252,13 @@ try{
             $config = Get-Content $ConfigFile | ConvertFrom-Json 
             if ($null -eq $config) {
                 Write-EventLog -LogName "Application" -source $source -Message "TierLevel Isolation Can't read the configuration file $ConfigFile" -EntryType Error -EventID 0
-                Write-Output "An error occured while reading the configuration file $ConfigFile. The script will exit with code 0x3EB"
+                Write-Output "An error occurs while reading the configuration file $ConfigFile. The script will exit with code 0x3EB"
                 return 0x3EB
             }
             Write-Log -Message "Read config from $ConfigFile" -Severity Debug -EventID 1101
         } else {
             Write-EventLog -LogName "Application" -source $source -Message "TierLevel Isolation Can't find the configuration file $ConfigFile" -EntryType Error -EventID 0
-            write-output "An error occured while reading the configuration file $ConfigFile. The script will exit with code 0x3EA"
+            write-output "An error occurs while reading the configuration file $ConfigFile. The script will exit with code 0x3EA"
             return 0x3EA
         }
     }
@@ -264,10 +266,10 @@ try{
 }
 catch {
     Write-EventLog -LogName "Application" -Source "Application" -Message "error reading configuration" -Severity Error -EventID 0
-    Write-Output " An error occured while reading the configuration file $ConfigFile. The script will exit with code 0x3E8"
+    Write-Output " An error occurs while reading the configuration file $ConfigFile. The script will exit with code 0x3E8"
     return 0x3E8
 }
-#if the paramter $scope is set, it will overwrite the saved configuration
+#if the parameter $scope is set, it will overwrite the saved configuration
 if ($null -eq $scope ){
     if ($config.scope -eq "Tier0"){
         $scope = "Tier-0"
@@ -287,7 +289,7 @@ if ($null -eq $config.LogPath -or $config.LogPath -eq ""){
     $LogFile = "$($config.LogPath)\$($MyInvocation.MyCommand).log" #Name and path of the log file
 }
 
-#rename existing log files to *.sav if the currentlog file exceed the size of $MaxLogFileSize
+#rename existing log files to *.sav if the current log file exceed the size of $MaxLogFileSize
 if (Test-Path $LogFile) {
     if ((Get-Item $LogFile ).Length -gt $MaxLogFileSize) {
         if (Test-Path "$LogFile.sav") {
@@ -370,7 +372,7 @@ foreach ($Domain  in $config.Domains) {
                 Write-Log "Working on $domain : Global catalog not updated. Wait for GP update $($Error[0].InvocationInfo.ScriptLineNumber)" -Severity Warning -EventID 1204
             }
             catch{
-                Write-Log "A unexpected error has occured in line $($Error[0].InvocationInfo.ScriptLineNumber) while updating $Tier0ComputerGroup for domain $domain" -Severity Error -EventID 1003
+                Write-Log "A unexpected error has occurs in line $($Error[0].InvocationInfo.ScriptLineNumber) while updating $Tier0ComputerGroup for domain $domain" -Severity Error -EventID 1003
             }
         }
         #endregion
@@ -404,7 +406,7 @@ foreach ($Domain  in $config.Domains) {
                 Write-Log "Global catalog not updated while working on $domain . Wait for GP update $($Error[0].InvocationInfo.ScriptLineNumber)" -Severity Warning -EventID 1404
             }
             catch{
-                Write-Log "A unexpected error has occured while managing Tier 1 computersgroups $($error[0]) on $domain" -Severity Error -EventID 1402
+                Write-Log "A unexpected error has occurs while managing Tier 1 computers groups $($error[0]) on $domain" -Severity Error -EventID 1402
             }
         }
     }
