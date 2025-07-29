@@ -125,7 +125,7 @@ function Write-Log {
     )
 
     #Format the log message and write it to the log file
-    $LogLine = "$(Get-Date -Format o),$($PID), [$Severity],[$EventID], $Message"
+    $LogLine = "$(Get-Date -Format o),$($PID), [$Severity],[$EventID],[$($PID)] $Message"
     if ($LogFile -ne $null) { #Safety check to make sure logfile isn't null
         Add-Content -Path $LogFile -Value $LogLine
     }
@@ -478,6 +478,7 @@ if (Test-Path $LogFile) {
 }
 #endregion
 Write-Log -Message "Tier Isolation user management $Scope version $ScriptVersion started. see $LogFile for more details" -Severity Information -EventID 2000
+Write-Log -Message "The script started with $($MyInvocation.Line) - Process ID $($PID)" -Severity Debug -EventID 2015
 #if the parameter $scope is set, it will overwrite the saved configuration
 if ($scope -eq "Tier-1" -and $config.scope -ne "Tier1"){
     Write-Log -Message "The TierLevelUserManagement.ps1 script started with Tier 1 user management scope. But the scope is disabled in the configuration file. The script will exit" -Severity Information -EventID 2001

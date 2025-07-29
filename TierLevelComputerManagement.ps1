@@ -300,6 +300,8 @@ if (Test-Path $LogFile) {
 }
 #endregion
 Write-Log -Message "Tier Isolation computer management $Scope version $ScriptVersion started. $($MyInvocation.Line) see $logFile " -Severity Information -EventID 1000
+Write-Log -Message "The script started with $($MyInvocation.Line) - Process ID $($PID)" -Severity Debug -EventID 1005
+
 #region validate the Tier computer groups exist. If not terminal the script
 if ($scope -eq "Tier-1" -and $config.scope -ne "Tier1"){
     Write-Log -Message "The TierLevelComputerManagement.ps1 script started with Tier 1 computer management scope. But the scope is disabled in the configuration file. The script will exit" -Severity Information -EventID 1205

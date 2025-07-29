@@ -6,6 +6,7 @@
 |1002| Debug         | Reading configuration from AD                                    |
 |1003| Error         | Missing AD configuration settings                                |
 |1004| Error         | AD Web Service failed to connect                                 |
+|1005| Debug         | Write the command line parameter to the debug log file           |
 |1100| Debug         | Reading configuration file from default configuration path       |
 |1101| Debug         | Reading configuration from file                                  |
 |1200| Error         | Cannot find the Tier 0 computer group                            |
@@ -32,7 +33,7 @@
 |EventID|Severity    |Message|
 |---|---|---|
 |2000   | Information| Script started                                               |
-|2001   | Information| The script is started with Tier-1 paramter but Tier-1 is disabled in the configuraiton |
+|2001   | Information| The script is started with Tier-1 paramter but Tier-1 is disabled in the configuration |
 |2002   | Error      | Missing Kerberos Authentication Policy                       |
 |2003   | Debug      | Failed to read the configuration form the config file        |
 |2004   | Error      | configuration File missing                                   |
@@ -45,6 +46,7 @@
 |2012   | Debug      | successfully isolation of Tier 1 account                     |
 |2013   | Debug      | a error occured during the Tier 1 account isolation          |
 |2014   | Debug      | calling the Set-TierLevelIsolation function                  |
+|2015   | Debug      | write the command line paramters to the debug log file       |
 |2101   | Error      | Kerberos Authenticatin Policy not found                      |
 |2102   | Warning    | OU missing                                                   |
 |2103   | Warning    | The Built-In Administrator located in Tier 0 users OU        |
