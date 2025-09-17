@@ -301,6 +301,7 @@ if (Test-Path $LogFile) {
 #endregion
 Write-Log -Message "Tier Isolation computer management $Scope version $ScriptVersion started. $($MyInvocation.Line) see $logFile " -Severity Information -EventID 1000
 Write-Log -Message "The script started with $($MyInvocation.Line) - Process ID $($PID)" -Severity Debug -EventID 1005
+Write-Log -Message "Current user $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)" -Severity Debug -EventID 1005 
 
 #region validate the Tier computer groups exist. If not terminal the script
 if ($scope -eq "Tier-1" -and $config.scope -ne "Tier1"){
