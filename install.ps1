@@ -75,7 +75,16 @@ possibility of such damages
         Added GMSA validation. The script will not accept GMSA names longer than 15 characters.
     Version 0.2.20250714
         Fixing an error if only Tier 0 is implemented
-
+    Version 0.2.20250923
+        [Kili69]
+        The administration can decide to enable Kerberos claim support manually. The script will display a warning message
+    Version 0.2.20251014
+        [Kili69]
+        Updated links to Microsoft Docs
+        Please refer to https://learn.microsoft.com/en-us/windows-server/security/kerberos/kerberos-authentication-policy-and-claims
+        and https://learn.microsoft.com/en-us/windows-server/security/kerberos/kerberos-armoring-for-privileged-accounts
+        for more information about claim support and Kerberos armoring
+    Version 0.2.20251014
 
 #>
 param(
@@ -309,7 +318,7 @@ function Get-SelectedDomains {
 #####################################################################################################################################################################################
 #region  Constanst and default value
 #####################################################################################################################################################################################
-$ScriptVersion = "0.2.20250714"
+$ScriptVersion = "0.2.20251014"
 try{
     Import-Module ActiveDirectory -ErrorAction Stop
     Import-Module GroupPolicy  -ErrorAction Stop
@@ -837,20 +846,34 @@ try {
         }
     }
     #Enable Claim Support on Domain Controllers. 
-    #Write this setting to the default domain controller policy  
-    foreach ($domain in $config.Domains){
-        $RegKey = Get-GPRegistryValue -Domain $domain -Guid $DefaultDomainControllerPolicy -Key $KDCEnableClaim.Key  -ErrorAction SilentlyContinue
-        if ( $RegKey.value -ne 1){
-            Set-GPRegistryValue @KDCEnableClaim -Domain $domain -Guid $DefaultDomainControllerPolicy 
+    #Write this setting to the default domain controller policy
+    Write-Host "Enable claim support on domain controllers and clients" -ForegroundColor Green
+    Write-Host "Claim support is required to use Kerberos Authentication Policies" -ForegroundColor Green
+    Write-Host "If you continue with 'y' the script will enable claim support on domain controllers and clients via group policy in the Default Domain Controller Policy" -ForegroundColor Yellow
+    Write-Host "and the Default Domain Policy" -ForegroundColor Yellow
+    $ReadKey = Read-Host "Do you want to enable claim support on domain controllers and clients ([y]/n)"
+    if ($ReadKey -eq '' -or $ReadKey -like "y*"){
+        Write-Host "Enabling claim support on domain controllers and clients" -ForegroundColor Green
+        foreach ($domain in $config.Domains){
+            Write-Host "Enabling claim support in domain $domain" -ForegroundColor Green
+            $RegKey = Get-GPRegistryValue -Domain $domain -Guid $DefaultDomainControllerPolicy -Key $KDCEnableClaim.Key  -ErrorAction SilentlyContinue
+            if ( $RegKey.value -ne 1){
+                Set-GPRegistryValue @KDCEnableClaim -Domain $domain -Guid $DefaultDomainControllerPolicy 
+            }
+            $RegKey = Get-GPRegistryValue -Domain $Domain -Guid $DefaultDomainControllerPolicy -key $ClientKerberosAmoring.Key  -ErrorAction SilentlyContinue
+            if ($RegKey.value -ne 1){
+                Set-GPRegistryValue @ClientKerberosAmoring -Domain $domain -Guid $DefaultDomainControllerPolicy 
+            }
+            $RegKey = Get-GPRegistryValue -Domain $Domain -Guid $DefaultDomainPolicy -key $ClientKerberosAmoring.Key -ErrorAction SilentlyContinue
+            if ($RegKey.value -ne 1){
+                Set-GPRegistryValue @ClientKerberosAmoring -Domain $domain -Guid $DefaultDomainPolicy 
+            }
         }
-        $RegKey = Get-GPRegistryValue -Domain $Domain -Guid $DefaultDomainControllerPolicy -key $ClientKerberosAmoring.Key  -ErrorAction SilentlyContinue
-        if ($RegKey.value -ne 1){
-            Set-GPRegistryValue @ClientKerberosAmoring -Domain $domain -Guid $DefaultDomainControllerPolicy 
-        }
-        $RegKey = Get-GPRegistryValue -Domain $Domain -Guid $DefaultDomainPolicy -key $ClientKerberosAmoring.Key -ErrorAction SilentlyContinue
-        if ($RegKey.value -ne 1){
-            Set-GPRegistryValue @ClientKerberosAmoring -Domain $domain -Guid $DefaultDomainPolicy 
-        }
+    } else {
+        Write-Host "Kerberos Claim support is not enabled. You must to enable claim support manually on domain controllers and clients" -ForegroundColor Yellow
+        Write-Host "Please refer to https://learn.microsoft.com/en-us/windows-server/security/kerberos/kerberos-authentication-policy-and-claims" -ForegroundColor Yellow
+        Write-Host "and https://learn.microsoft.com/en-us/windows-server/security/kerberos/kerberos-armoring-for-privileged-accounts" -ForegroundColor Yellow
+        Write-Host "for more information about claim support and Kerberos armoring" -ForegroundColor Yellow
     }
 } 
 catch{
