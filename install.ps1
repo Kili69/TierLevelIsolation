@@ -330,7 +330,7 @@ catch {
 }
 #The current domain contains the relevant Tier level groups
 $CurrentDomainDNS = (Get-ADDomain).DNSRoot
-$CurrentDC        = (Get-ADDomainController -Discover -Service GlobalCatalog -NextClosestSite ).Name
+$CurrentDC        = (Get-ADDomainController -Discover -NextClosestSite ).HostName.Value
 
 #This Description will be added to the Tier 0 / Tier 1 Commputers group if it will be created during this setup. This Description can't be changed during the setup. 
 $DescriptionT0ComputerGroup = "This group contains all Tier 0 member computer. This group will be used for the Kerberos Authentication Policy claim"
@@ -753,7 +753,8 @@ if (($scope -eq "Tier1") -or ($scope -eq "All-Tiers")){
     }
     catch [System.UnauthorizedAccessException]{
         Write-Host "Enterprise Administrator Privileges required to create Kerberos Authentication Policy" -ForegroundColor Red
-        Write-Host $($Error[0].Exception.Message) -ForegroundColor Red
+        Write-Host $($_.Exception.Message) -ForegroundColor Red
+        Write-Host $($_.InvocationInfo.ScriptLineNumber) -ForegroundColor Yellow
         Write-Host "script aborted " -ForegroundColor Red
         exit
     }
@@ -770,7 +771,8 @@ if ($null -eq (Get-ADServiceAccount -Filter "name -eq '$GMSAName'")){
     if (![bool](Get-KdsRootKey)){
         Write-Host "KDS Rootkey is missing." -ForegroundColor Red
         Write-Host "Creating KDS-Rootkey" -ForegroundColor Yellow
-        Add-KdsRootKey -EffectiveTime ((Get-Date).AddHours(-10))
+        Add-KdsRootKey -EffectiveTime ((Get-Date).AddHours(-10)) | Out-Null
+        Write-Host "KDS Rootkey created" -ForegroundColor Green
     }
     New-GMSA -GMSAName $GMSAName -AllowTOLogon (Get-ADGroup -Identity "$((Get-ADDomain).DomainSID)-516") -Description $DescriptionGMSA
 }

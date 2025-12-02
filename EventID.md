@@ -19,11 +19,12 @@
 |1303| Debug         | Tier 0 computer group updated                                      |
 |1304| Warning       | Removing a computer from Tier 0 computer groups                    |
 |1305| Debug         | A OU do not contain any computer object                            |
+|1306| Warning       | ADWS is down cannot verify unexpected computers                    |
 |1400| Warning       | A Tier 1 OU is missing                                             |
 |1401| Information   | A computer is added to the Tier 1 computer group                   |
 |1402| Error         | Unexpected error occurred while updating the Tier 1 computer group |
 |1403| Warning       | Removing a computer from Tier 1 computer group                     |
-|1404| Warning       | A Tier 1 computer object is not listen in the global catalog       |
+|1404| Warning       | A Tier 1 computer object is not listed in the global catalog       |
 |1405| Debug         | The Tier 1 computer is updated                                     |
 ---
 
@@ -55,7 +56,7 @@
 |2200   | Warning    | Missing group SID                                               |
 |2201   | Warning    | A user is removed from a privileged group                       |
 |2202   | Error      | Cannot connect to AD-Webservice                                 |
-|2203   | Error      | A error occurred while a remving a user from a privileged group |
+|2203   | Error      | A error occurred while a removing a user from a privileged group|
 |2204   | Error      | unexpected error                                                |
 |2205   | Debug      | privileged service account detected                             | 
 |2206   | Debug      | privileged user detected                                        |

@@ -54,6 +54,9 @@ possibility of such damages
         Removed inconsistency between this script and the TierLevelUserManagement.ps1 script reading the config file
     Version 0.2.20250714
         Fixed a bug in the scope parameter handling
+    Version 0.2.20251202
+        Added error handling if the AD web service is not available while checking unexpected computer objects
+        Fixed a issue if the script is started with the configfile parameter
 
     Exit codes:
         0x3E8 - a general error occured while readinb the configuration file
@@ -159,28 +162,33 @@ function Get-UnexpectedComputerObjects{
     $UnexpectedComputer = @() #result array 
     #The parameter OUList my contains the relative OU path. This array will be expanded to the full distinguished name
     $FQOuList = @() #list of all possible OU path
-    foreach ($DomainRoot in $DomainDnsList){
-        $DomainDN = (Get-ADDomain -Server $DomainRoot).DistinguishedName
-        foreach ($OU in $OUList){
-            if ($OU -notlike "*DC=*"){$OU = "$OU,$DomainDN"}
-            if ($OU -like "*$DomainDN") {$FQOuList += $OU}
+    try{
+        foreach ($DomainRoot in $DomainDnsList){
+            $DomainDN = (Get-ADDomain -Server $DomainRoot).DistinguishedName
+            foreach ($OU in $OUList){
+                if ($OU -notlike "*DC=*"){$OU = "$OU,$DomainDN"}
+                if ($OU -like "*$DomainDN") {$FQOuList += $OU}
+            }
         }
-    }
-    #search for unexpected computer objects
-    foreach ($Member in $MemberDNList ){
-        #extract the OU path from the computer object
-        $MemberOU = [regex]::Match($Member,"CN=[^,]+,(.*)").Groups[1].Value
-        $found = $false
-        #walk to all allowed OU's and check if the computer object is in one of the allowed OU's
-        foreach ($OU in $FQOuList){
-            if ($MemberOU -like "*$OU"){
-                $found = $true
-                break
+        #search for unexpected computer objects
+        foreach ($Member in $MemberDNList ){
+            #extract the OU path from the computer object
+            $MemberOU = [regex]::Match($Member,"CN=[^,]+,(.*)").Groups[1].Value
+            $found = $false
+            #walk to all allowed OU's and check if the computer object is in one of the allowed OU's
+            foreach ($OU in $FQOuList){
+                if ($MemberOU -like "*$OU"){
+                    $found = $true
+                    break
+                }
             }
         }
         #if the computer object is not in one of the allowed OU's add it to the result array
         if (!$found) { $UnexpectedComputer += $Member }
-    }    
+    }
+    catch [Microsoft.ActiveDirectory.Management.ADServerDownException] {
+        Write-Log "The AD WebService is down or not reachable $domain $($error[0].InvocationInfo.ScriptLineNumber). Can not verify unexpected computer objects." -Severity Error -EventID 1306
+    }
     return $UnexpectedComputer
  }
 #endregion
@@ -199,7 +207,7 @@ $DefaultConfigFile = "\\$CurrentDomainDNS\SYSVOL\$CurrentDomainDNS\scripts\TierL
 #endregion
 
 #script Version 
-$ScriptVersion = "0.2.20250625"
+$ScriptVersion = "0.2.20251205"
 #validate the event source TierLevelIsolation is registered in the application log. If the registration failes
 #the events will be written with the standard application event source to the event log. 
 try {   
@@ -248,7 +256,6 @@ try{
                 Write-Output "An error occured while reading the configuration file $ConfigFile. The script will exit with code 0x3EB"
                 return 0x3EB
             }
-            Write-Log -Message "Read config from $ConfigFile" -Severity Debug -EventID 1101
         } else {
             Write-EventLog -LogName "Application" -source $source -Message "TierLevel Isolation Can't find the configuration file $ConfigFile" -EntryType Error -EventID 0
             write-output "An error occured while reading the configuration file $ConfigFile. The script will exit with code 0x3EA"
@@ -258,7 +265,7 @@ try{
 
 }
 catch {
-    Write-EventLog -LogName "Application" -Source "Application" -Message "error reading configuration" -Severity Error -EventID 0
+    Write-EventLog -LogName "Application" -Source $source -Message "error reading configuration" -EntryType Error -EventID 0
     Write-Output " An error occured while reading the configuration file $ConfigFile. The script will exit with code 0x3E8"
     return 0x3E8
 }
