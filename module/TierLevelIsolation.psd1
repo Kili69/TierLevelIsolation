@@ -24,7 +24,7 @@
     RootModule = '0.1\TierLevelIsolation.psm1'
     
     # Version number of this module.
-    ModuleVersion = '0.1.20250428'
+    ModuleVersion = '0.1.20251223'
     
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -81,22 +81,27 @@
     # NestedModules = @()
     
     # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-    FunctionsToExport = @("Get-TierLevelIsolationConfiguration",
-                          "Add-TierLevelIsolationComputerPath",
-                          "Remove-TierLevelIsolationComputerPath",
-                          "Set-TierLevelIsolationComputerGroup",
-                          "Add-TierLevelIsolationServiceAccountPath",
-                          "Remove-TierLevelIsolationServiceAccountPath",
-                          "Add-TierLevelIsolationUserPath",
-                          "Remove-TierLevelIsolationUserPath",
-                          "Set-TierLevelIsolationKerberosAuthenticationPolicy",
-                          "Add-TierLevelIsolationDomain",
-                          "Remove-TierLevelIsolationDomain",
-                          "Set-TierLevelIsolationScope",
-                          "Set-TierLevelPrivilegedGroupsCleanUpState",
-                          "Set-TierLevelProtectedUsersState",
-                          "add-TierlevelIsolationGroup",
-                          "Remove-TierlevelIsolationGroup")
+    FunctionsToExport = @(
+                            "Add-TierLevelIsolationComputerPath",
+                            "Add-TierLevelIsolationDomain",
+                            "Add-TierLevelIsolationGroup",
+                            "Add-TierLevelIsolationServiceAccountPath",
+                            "Add-TierLevelIsolationUserPath",
+  
+                            "Get-TierLevelIsolationConfiguration",
+  
+                            "Remove-TierLevelIsolationComputerPath",
+                            "Remove-TierLevelIsolationDomain",
+                            "Remove-TierLevelIsolationGroup",
+                            "Remove-TierLevelIsolationServiceAccountPath",
+                            "Remove-TierLevelIsolationUserPath",
+
+                            "Set-TierLevelIsolationComputerGroup",
+                            "Set-TierLevelPrivilegedGroupsCleanUpState",  
+                            "Set-TierLevelIsolationKerberosAuthenticationPolicy",
+                            "Set-TierLevelIsolationScope",
+                            "Set-TierLevelProtectedUsersState"
+)
     
     # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
     CmdletsToExport = @()

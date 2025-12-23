@@ -441,8 +441,8 @@ do{
     $strReadHost = Read-Host "Select which scope should be enabled (2)" 
     switch ($strReadHost) {
         ""  { $scope = "All-Tiers"}
-        "0" { $scope = "Tier0" }
-        "1" { $scope = "Tier1" }
+        "0" { $scope = "Tier-0" }
+        "1" { $scope = "Tier-1" }
         "2" { $scope = "All-Tiers"}
         Default {$scope = ""}
     }

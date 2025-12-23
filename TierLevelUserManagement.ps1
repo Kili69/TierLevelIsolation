@@ -69,6 +69,9 @@ possibility of such damages
     Version 0.2.20251219
         New function ConvertTo-DistinguishedNames to convert relative OU paths to FQDNs
         New functionality to process privileged domain groups from the configuration file
+    Version 0.2.20251223
+        Fixed a bug in the nameing of Tier-0 and Tier-1 scope
+
 
     exist codes:
         0x3E8 - The script terminated with a unexpected error
@@ -447,13 +450,17 @@ function ConvertTo-DistinguishedNames{
 function RemoveUserFromAdditionalGroups{
     param (
         [Parameter(Mandatory = $true)]
-        [validateSet("Tier0","Tier")]
+        [validateSet("Tier-0","Tier-1")]
         $scope
     )
-    if ($scope -eq "Tier0"){
-        $Groups = $config.Tier0Group
+    if ($scope -eq "Tier-0"){
+        $Groups = $config.Tier0Groups
+        $OUPath = $config.Tier0UsersPath 
+        $ServiceAccountPath = $config.Tier0ServiceAccountPath   
     } else {
-        $Groups = $config.Tier1Group
+        $Groups = $config.Tier1Groups
+        $OUPath = $config.Tier1UsersPath
+        $ServiceAccountPath = $config.Tier1ServiceAccountPath
     }
     #cleanup of the privileged domain groups defined in the configuration file
     Write-Log "searching for unexpected users $Scope in privileged domain groups defined in the configuration file" -Severity Debug -EventID 2207
@@ -464,8 +471,8 @@ function RemoveUserFromAdditionalGroups{
         $DomainDNS = ConvertFrom-NetBIOSNameToDNS -NetBIOSName $DomainNetBiosName
         if ($null -ne $DomainDNS){
             try {
-            $GroupSID = (Get-ADGroup -Identity $GroupName -Server $DomainDNS).SID
-            validateAndRemoveUser -SID $GroupSID.Value -DomainDNSName $DomainDNS -PrivilegedOU $config.Tier0UsersPath -ServiceAccountPath $config.Tier0ServiceAccountPath                
+                $GroupSID = (Get-ADGroup -Identity $GroupName -Server $DomainDNS).SID  
+                validateAndRemoveUser -SID $GroupSID.Value -DomainDNSName $DomainDNS -PrivilegedOU $OUPath -ServiceAccountPath $ServiceAccountPath                  
             }
             catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException]{
                 Write-Log "Cannot find group $GroupName in $DomainDNS" -Severity Warning -EventID 2208
@@ -485,7 +492,7 @@ function RemoveUserFromAdditionalGroups{
 # Main program starts here
 ##############################################################################################################################
 #script Version 
-$ScriptVersion = "0.2.20251219"
+$ScriptVersion = "0.2.20251223"
 #Validate and create event log source if required
 try {   
     $eventLog = "Application"
@@ -570,12 +577,9 @@ if (Test-Path $LogFile) {
 Write-Log -Message "Tier Isolation user management $Scope version $ScriptVersion started. see $LogFile for more details" -Severity Information -EventID 2000
 # If the parameter $scope is not provided, it will use the configuration scope from the configuration file. 
 # This is relevant if the script is called from a scheduled task without parameters
-if ($null -eq $scope ){
-    $scope = $config.scope
-} 
 switch ($scope) {
-    "Tier-0" { 
-        if ($config.scope -eq "Tier1"){
+    "Tier-0"{ 
+        if ($config.scope -eq "Tier1" -or $config.scope -eq "Tier-1"){
             Write-Log -Message "The scope parameter $scope does not match to the configuration scope $($config.scope) the script is terminated" -Severity Error -EventID 2006
             return 0x3EA
         } else {
@@ -585,7 +589,7 @@ switch ($scope) {
         }
     }
     "Tier-1"{
-        if ($config.scope -eq "Tier0"){
+        if ($config.scope -eq "Tier0" -or $config.scope -eq "Tier-0"){
             Write-Log -Message "The scope parameter $scope does not match to the configuration scope $($config.scope) the script is terminated" -Severity Error -EventID 2006
             return 0x3EA
         } else {
@@ -595,7 +599,7 @@ switch ($scope) {
         }
     }
     Default {
-        Write-Log -Message "Current scope is $scope" -Severity Debug -EventID 2006
+        Write-Log -Message "Current scope is Tier 0 and Tier 1" -Severity Debug -EventID 2006
         $config.Tier0UsersPath = ConvertTo-DistinguishedNames -DomainsDNS $config.Domains -DistinguishedNames $config.Tier0UsersPath
         $config.Tier0ServiceAccountPath = ConvertTo-DistinguishedNames -DomainsDNS $config.Domains -DistinguishedNames $config.Tier0ServiceAccountPath
         $config.Tier1UsersPath = ConvertTo-DistinguishedNames -DomainsDNS $config.Domains -DistinguishedNames $config.Tier1UsersPath
@@ -655,8 +659,8 @@ if ($config.PrivilegedGroupsCleanUp -and $scope -ne "Tier-1"){
     validateAndRemoveUser -SID "$forestSID-518" -DomainDNSName $forestDNS -PrivilegedOU $config.Tier0UsersPath -ServiceAccountPath $config.Tier0ServiceAccountPath
     Write-Log "searching for unexpected users in enterprise admins" -Severity Debug -EventID 2009
     validateAndRemoveUser -SID "$forestSID-519" -DomainDNSName $forestDNS -PrivilegedOU $config.Tier0UsersPath -ServiceAccountPath $config.Tier0ServiceAccountPath
-    RemoveUserFromAdditionalGroups -scope "Tier0"
+    RemoveUserFromAdditionalGroups -scope "Tier-0"
 } else {
-    RemoveUserFromAdditionalGroups -scope "Tier1"
+    RemoveUserFromAdditionalGroups -scope "Tier-1"
 }
 
