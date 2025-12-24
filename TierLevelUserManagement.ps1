@@ -70,7 +70,10 @@ possibility of such damages
         New function ConvertTo-DistinguishedNames to convert relative OU paths to FQDNs
         New functionality to process privileged domain groups from the configuration file
     Version 0.2.20251223
-        Fixed a bug in the nameing of Tier-0 and Tier-1 scope
+        Fixed a bug in the naming of Tier-0 and Tier-1 scope
+    Version 0.2.20251224
+        Documentation update
+        The users will not added the users to the protected users group in the Set-TierLevelIsolation function if the parameter AddProtectedUsersGroup
 
 
     exist codes:
@@ -163,7 +166,7 @@ function Write-Log {
         [string]$Message,
         #Severity of the message
         [Parameter (Mandatory = $true)]
-        [Validateset('Error', 'Warning', 'Information', 'Debug') ]
+        [ValidateSet('Error', 'Warning', 'Information', 'Debug') ]
         $Severity,
         #Event ID
         [Parameter (Mandatory = $true)]
@@ -213,6 +216,9 @@ function Write-Log {
 .OUTPUTS 
     $True if all users in the privilege OU are marked as sensitive and the kerberos authentication policy is applied
     $False
+.EXAMPLE
+    Set-TierLevelIsolation -DomainDNS "contoso.com" -OrgUnits @("OU=Tier0,OU=Admin,DC=contoso,DC=com") -AddProtectedUsersGroup $true -KerbAuthPolName "Tier0KerbAuthPol"
+    This will apply the Kerberos Authentication Policy "Tier0KerbAuthPol" to all users in the OU "OU=Tier0,OU=Admin,DC=contoso,DC=com" and add the users to the protected users group
 #>
 function Set-TierLevelIsolation{
     param(
@@ -228,14 +234,17 @@ function Set-TierLevelIsolation{
     $retVal = $false
     try {
         Write-Log -Message "Start Set-TierLevelIsolation for $DomainDNS -ProtectedUsersGroup $AddProtectedUsersGroup" -Severity Debug -EventID 2014
+        #Get the domain distinguished name
         $DomainDN = (Get-ADDomain -Server $DomainDNS).DistinguishedName
-        #Validate the Kerberos Authentication policy exists. If not terminate the script with error code 0xA3. 
+        #Getting the Kerberos Authentication Policy object 
         $KerberosAuthenticationPolicy = Get-ADAuthenticationPolicy -Filter "Name -eq '$($KerbAuthPolName)'"
+        #Validate the Kerberos Authentication Policy exists. If not, write an error and return false
         if ($null -eq $KerberosAuthenticationPolicy){
             Write-Log -Message "Tier 0 Kerberos Authentication Policy '$KerberosPolicyName' not found on AD" -Severity Error -EventID 2101
             return $false
         }
-        $oProtectedUsersGroup = Get-ADGroup -Identity "$((Get-ADDomain -Server $DomainDNS).DomainSID)-525" -Server $DomainDNS -Properties member
+        #Get the protected users group object from the domain
+        #$oProtectedUsersGroup = Get-ADGroup -Identity "$((Get-ADDomain -Server $DomainDNS).DomainSID)-525" -Server $DomainDNS -Properties member
         foreach ($OU in $OrgUnits){
             if($OU -match "OU=[^,]*,$DomainDN"){
                 if ($null -eq (Get-ADOrganizationalUnit -Filter "DistinguishedName -eq '$OU'" -Server $DomainDNS)){
@@ -292,9 +301,9 @@ function Set-TierLevelIsolation{
 .PARAMETER DomainDNSName
     -is the domain DNS name of the AD object
 .PARAMETER PrivilegedOU
-    -is a array of Distinguishednames to the privileged user OUs
+    -is a array of DistinguishedNames to the privileged user OUs
 .PARAMETER ServiceAccountPath
-    -is a array of distinguishednames to the service account OU
+    -is a array of DistinguishedNames to the service account OU
 .EXAMPLE
     validateAndRemoveUser -SID "S-1-5-<domain sid>-<group sid>" -DomainDNS contoso.com
 #>
@@ -492,7 +501,7 @@ function RemoveUserFromAdditionalGroups{
 # Main program starts here
 ##############################################################################################################################
 #script Version 
-$ScriptVersion = "0.2.20251223"
+$ScriptVersion = "0.2.20251224"
 #Validate and create event log source if required
 try {   
     $eventLog = "Application"
