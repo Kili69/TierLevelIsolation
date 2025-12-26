@@ -74,7 +74,8 @@ possibility of such damages
     Version 0.2.20251224
         Documentation update
         The users will not added the users to the protected users group in the Set-TierLevelIsolation function if the parameter AddProtectedUsersGroup
-
+    Version 0.2.20251226
+        Issue with protected users fixed
 
     exist codes:
         0x3E8 - The script terminated with a unexpected error
@@ -244,7 +245,7 @@ function Set-TierLevelIsolation{
             return $false
         }
         #Get the protected users group object from the domain
-        #$oProtectedUsersGroup = Get-ADGroup -Identity "$((Get-ADDomain -Server $DomainDNS).DomainSID)-525" -Server $DomainDNS -Properties member
+        $oProtectedUsersGroup = Get-ADGroup -Identity "$((Get-ADDomain -Server $DomainDNS).DomainSID)-525" -Server $DomainDNS -Properties member
         foreach ($OU in $OrgUnits){
             if($OU -match "OU=[^,]*,$DomainDN"){
                 if ($null -eq (Get-ADOrganizationalUnit -Filter "DistinguishedName -eq '$OU'" -Server $DomainDNS)){
@@ -501,7 +502,7 @@ function RemoveUserFromAdditionalGroups{
 # Main program starts here
 ##############################################################################################################################
 #script Version 
-$ScriptVersion = "0.2.20251224"
+$ScriptVersion = "0.2.20251226"
 #Validate and create event log source if required
 try {   
     $eventLog = "Application"
