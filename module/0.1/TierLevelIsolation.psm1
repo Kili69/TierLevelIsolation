@@ -31,7 +31,12 @@ Version History:
     0.1.20250423 - Added function to set the DebugLog Path to the configuration file.
                  - Added function to get the DebugLog Path from the configuration file.
     Version 0.2.20250428
-                 0.1.20250428 - Added the force parameter to the Set-TierLevelIsolationComputerGroup, Set-TierLevelIsolationKerberosAuthenticationPolicy
+                - Added the force parameter to the Set-TierLevelIsolationComputerGroup, Set-TierLevelIsolationKerberosAuthenticationPolicy
+    Version 0.2.20251219 
+                - Added functions to add and remove groups to/from Tier0 and Tier1 configurations.
+    Version 0.2.20251223
+                - Added validation to prevent adding a group to Tier1 if it already exists in Tier0.
+                - Supported values in Add-TierLevelIsolationGroup are now in NetBIOS format (DOMAIN\GroupName), UPN (GroupName@DNSName) and canonical name (DNSName/GroupName).
 
 #>
 
@@ -54,6 +59,8 @@ Version History:
 #   Remove-TierLevelIsolationDomain removes a domain from the Tier Level Isolation configuration
 #   Set-TierLevelIsolationScope sets the current scope of the Tier Level Isolation configuration
 #   Set-TierLevelPrivilegedGroupsCleanUpState sets the state of privileged groups clean up in the Tier Level Isolation configuration
+#   Add-TierlevelIsolationGroup adds a group to the specified tier level
+#   Remove-TierlevelIsolationGroup removes a group from the specified tier level
 #endregion
 
 #region Global variables
@@ -132,6 +139,8 @@ function Get-TierLevelIsolationConfiguration {
     $config | Add-Member -MemberType NoteProperty -Name ProtectedUsers          -Value @()
     $config | Add-Member -MemberType NoteProperty -Name PrivilegedGroupsCleanUp -Value $false
     $config | Add-Member -MemberType NoteProperty -Name LogPath                 -Value ""
+    $config | Add-Member -MemberType NoteProperty -Name Tier0Groups              -Value @()
+    $config | Add-Member -MemberType NoteProperty -Name Tier1Groups              -Value @()
     # Check if the config file exists
     if (Test-Path $configFile) {
         $CurrentConfig = Get-Content -Path $configFile -Raw | ConvertFrom-Json
@@ -143,6 +152,12 @@ function Get-TierLevelIsolationConfiguration {
         }
         
     } 
+    #added a fix to ensure the scope value is correct
+    if ($config.scope -eq "Tier0") {
+        $config.scope = "Tier-0"
+    } elseif ($config.scope -eq "Tier1") {
+        $config.scope = "Tier-1"
+    }
     return $config
 }
 #.SYNOPSIS
@@ -784,4 +799,170 @@ function Get-DebugLogPath {
     )
     $config = Get-TierLevelIsolationConfiguration $configFile 
     return $config.LogPath
+}
+
+#.SYNOPSIS
+#   Add a group to the specified tier level
+#.DESCRIPTION
+#   This function adds a group to the specified tier level in the configuration.
+#.PARAMETER TierLevel
+#   The tier level to add the group to. Valid values are "Tier0" and "Tier1".
+#.PARAMETER GroupName  
+#   The name of the group to add. The groupname format can be
+#       NetBIOS format: DOMAIN\GroupName
+#       UPN format: GroupName@domain.com
+#       LDAP format: domain.com/GroupName
+#.PARAMETER configFile
+#   The path to the configuration file. If not specified, the default location is used.
+#   The default location is: \\$DNSRoot\SYSVOL\$DNSRoot\scripts\TierLevelIsolation.config
+# .EXAMPLE
+#   Add-TierLevelIsolationGroups -TierLevel "Tier0" -GroupName "MyTier0Group"
+#    Add the group to the Tier0 tier level.
+# .EXAMPLE  
+#   Add-TierLevelIsolationGroups -TierLevel "Tier1" -GroupName "DOMAIN\MyTier1Group"
+#    Add the group to the Tier1 tier level.
+# .EXAMPLE
+#   Add-TierLevelIsolationGroups -TierLevel "Tier1" -GroupName "MyTier1Group@DomainDNS"
+# .EXAMPLE
+#   Add-TierLevelIsolationGroups -TierLevel "Tier1" -GroupName "DomainDNS/MyTier1Group"
+# .NOTE
+#   This function validates if the group exists in Active Directory before adding it to the configuration.
+#   It supports group names in  NetBIOS format (DOMAIN\GroupName) "
+#   If the group does not exist, a warning is displayed and the group is not added to the configuration.
+#   If the group already exists in Tier0, it cannot be added to Tier1.
+function Add-TierLevelIsolationGroup {
+    param (
+        [Parameter(Mandatory = $true, Position = 0)]
+        [ValidateSet("Tier0", "Tier1")]
+        [string]$TierLevel,
+        [Parameter(Mandatory = $true, Position = 1, ValueFromPipeline = $true)]
+        [string]$GroupName,
+        [Parameter(Mandatory = $false, Position = 2)]
+        [string]$configFile = $global:configFile
+    )
+    process{
+        #Read the configuration file
+        $config = Get-TierLevelIsolationConfiguration $configFile 
+        #extract domain and group name from the input
+        try{
+            switch -regex ($GroupName) {
+                '^(.+?)\\(.+)$' {
+                    # NetBIOS format: DOMAIN\GroupName
+                    $DomainNetBios = $matches[1]
+                    $GroupName = $matches[2]
+                    $DomainDNSName = (Get-ADobject `
+                        -SearchBase "CN=Partitions,$((Get-ADRootDSE).configurationNamingContext)" `
+                        -LDAPFilter "(&(objectClass=crossRef)(nETBIOSName=$DomainNetBios))" `
+                        -Properties nETBIOSName,nCName,dnsRoot -ErrorAction Stop ).dnsRoot[0]
+                    break                 
+                }
+                '@(.+)$' {
+                    # UPN format: GroupName@domain.com
+                    $DomainDNSName = $matches[1]
+                    $GroupName = $GroupName.Split('@')[0]
+                    $DomainNetBios = (Get-ADDomain -Server $DomainDNSName -ErrorAction Stop).NetBIOSName
+                    break
+                }
+                '/(.+)$'{
+                    # LDAP format: domain.com/GroupName
+                    $DomainDNSName = $GroupName.Split('/')[0]
+                    $DomainNetBios = (Get-ADDomain -server $DomainDNSName -ErrorAction Stop ).NetBIOSName 
+                    $GroupName = $GroupName.Split('/')[1]
+                    break
+                }
+                default {
+                    # Just group name without domain
+                    $DomainDNSName = (Get-ADDomain -ErrorAction Stop).DNSRoot
+                    $DomainNetBios = (Get-ADDomain -ErrorAction Stop).NetBIOSName
+                    break
+                }
+            }
+            # Validate if the group exists in the specified domain
+        $Adgroup = Get-ADGroup -Identity $GroupName -Server $DomainDNSName -ErrorAction SilentlyContinue
+        if ($null -eq $ADgroup) {
+            Write-Host "The specified group does not exist for group: $GroupName in $DomainDNSName" -ForegroundColor Red
+            return
+        }
+        $GroupNameInNetBiosNotation = "$DomainNetBios\$($ADgroup.SamAccountName)"
+        }
+        catch [Microsoft.ActiveDirectory.Management.ADServerDownException]{
+            Write-Host "The specified domain could not be reached for group: $GroupName" -ForegroundColor Red
+            return
+        }
+        catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException]{
+            Write-Host "The specified group does not exist for group: $GroupName in $DomainDNSName" -ForegroundColor Red
+            return
+        }
+        catch{
+            Write-Host "An error occurred while processing the group: $GroupName. Error: $_" -ForegroundColor Red
+            return
+        }                 
+        # switch Tier level
+        if ($TierLevel -eq "Tier0") {
+            if ($config.Tier0Groups -notcontains $GroupNameInNetBiosNotation) {
+                $config.Tier0Groups += $GroupNameInNetBiosNotation
+            }
+        } else {
+            if ($config.Tier0Groups -contains $GroupNameInNetBiosNotation) {
+                Write-Host "The group $GroupNameInNetBiosNotation already exists in Tier0. Remove it from Tier0 before adding it to Tier1." -ForegroundColor Red
+                return
+            }
+            if ($config.Tier1Groups -notcontains $GroupNameInNetBiosNotation) {
+                $config.Tier1Groups += $GroupNameInNetBiosNotation
+            }
+         }
+        Set-TierLevelIsolationConfiguration -configFile $configFile -config $config
+    }
+}
+
+#
+#.SYNOPSIS
+#   Remove a group from the specified tier level
+#.DESCRIPTION
+#   This function removes a group from the specified tier level in the configuration.
+#.PARAMETER TierLevel
+#   The tier level to remove the group from. Valid values are "Tier0" and "Tier1".
+#.PARAMETER GroupName
+#   The name of the group to remove. This can be a full qualified name or just the group name.
+#.PARAMETER configFile
+#   The path to the configuration file. If not specified, the default location is used.
+#   The default location is: \\$DNSRoot\SYSVOL\$DNSRoot\scripts\TierLevelIsolation.config
+# .EXAMPLE
+#   Remove-TierLevelIsolationGroups -TierLevel "Tier0" -GroupName "Domain\MyTier0Group"
+#    Remove the group from the Tier0 tier level.
+# .EXAMPLE
+#   Remove-TierLevelIsolationGroups -TierLevel "Tier1" -GroupName "MyTier1Group"
+#    Remove the group from the Tier1 tier level.
+# .NOTE
+#   If the group exists in Tier0, it must be removed from Tier0 before it can be removed from Tier1.
+
+function Remove-TierLevelIsolationGroup {
+    param (
+        [Parameter(Mandatory = $true, Position = 0)]
+        [ValidateSet("Tier0", "Tier1")]
+        [string]$TierLevel,
+        [Parameter(Mandatory = $true, Position = 1, ValueFromPipeline = $true)]
+        [string]$GroupName,
+        [Parameter(Mandatory = $false, Position = 2)]
+        [string]$configFile = $global:configFile
+    )
+    process{
+        $config = Get-TierLevelIsolationConfiguration $configFile 
+        If ($GroupName -notcontains '\'){
+            $DomainNetBios = (Get-ADDomain).NetBIOSName
+            $GroupName = "$DomainNetBios\$GroupName"    
+        }
+        if ($TierLevel -eq "Tier0") {
+            if ($config.Tier0Groups -contains $GroupName) {
+                $config.Tier0Groups = @($config.Tier0Groups | Where-Object {$_ -ne $GroupName})
+            }
+        } elseif ($TierLevel -eq "Tier1") { 
+                if ($config.Tier1Groups -contains $GroupName) {
+                    $config.Tier1Groups = @($config.Tier1Groups | Where-Object {$_ -ne $GroupName})
+                }        
+        }
+        Write-Host "Removing group $GroupName from tier level $TierLevel" -ForegroundColor Yellow
+        Set-TierLevelIsolationConfiguration -configFile $configFile -config $config
+        return
+    }
 }
