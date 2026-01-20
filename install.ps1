@@ -84,7 +84,9 @@ possibility of such damages
         Please refer to https://learn.microsoft.com/en-us/windows-server/security/kerberos/kerberos-authentication-policy-and-claims
         and https://learn.microsoft.com/en-us/windows-server/security/kerberos/kerberos-armoring-for-privileged-accounts
         for more information about claim support and Kerberos armoring
-    Version 0.2.20251014
+    Version 0.2.20260120
+        [Kili69]
+        Fixed a bug in the selection of the Tier-Level
 
 #>
 param(
@@ -448,7 +450,7 @@ do{
     }
 }while ($scope -eq '')
 Set-TierLevelIsolationScope $scope
-if (($scope -eq "Tier0") -or ( $scope -eq "All-Tiers") ){
+if (($scope -eq "Tier-0") -or ( $scope -eq "All-Tiers") ){
     Write-Host "Tier 0 isolation parameter "
     do {
         $strReadHost = Read-Host "Distinguishedname of the Tier 0 Admin OU ($DefaultT0Users)"
@@ -472,7 +474,7 @@ if (($scope -eq "Tier0") -or ( $scope -eq "All-Tiers") ){
     if ($strReadHost -eq ''){$strReadHost = $DefaultT0KerbAuthPolName}
     Set-TierLevelIsolationKerberosAuthenticationPolicy Tier0 $strReadHost -Force
 }
-if ($scope -eq "Tier1" -or $scope -eq "All-Tiers"){
+if ($scope -eq "Tier-1" -or $scope -eq "All-Tiers"){
     Write-Host "Tier 1 isolation parameter "
     do {
         $strReadHost = Read-Host "Distinguishedname of the Tier 1 Admin OU ($DefaultT1Users)"
