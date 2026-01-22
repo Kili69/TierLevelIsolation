@@ -168,7 +168,7 @@
       <Task version="1.2">
         <RegistrationInfo>
           <Author>Tiering\Administrator</Author>
-          <Description>Manage Tier 1 computer. This schedule task acce Tier 1 computer to the Tier 1 computer group</Description>
+          <Description>Manage Tier Level Isolation Tier 1 users</Description>
         </RegistrationInfo>
         <Principals>
           <Principal id="Author">
