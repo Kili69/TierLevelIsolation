@@ -182,9 +182,9 @@ function Get-UnexpectedComputerObjects{
                     break
                 }
             }
+			#if the computer object is not in one of the allowed OU's add it to the result array
+			if (!$found) { $UnexpectedComputer += $Member }
         }
-        #if the computer object is not in one of the allowed OU's add it to the result array
-        if (!$found) { $UnexpectedComputer += $Member }
     }
     catch [Microsoft.ActiveDirectory.Management.ADServerDownException] {
         Write-Log "The AD WebService is down or not reachable $domain $($error[0].InvocationInfo.ScriptLineNumber). Can not verify unexpected computer objects." -Severity Error -EventID 1306
