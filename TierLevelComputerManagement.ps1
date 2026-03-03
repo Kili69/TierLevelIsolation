@@ -182,9 +182,9 @@ function Get-UnexpectedComputerObjects{
                     break
                 }
             }
+			#if the computer object is not in one of the allowed OU's add it to the result array
+			if (!$found) { $UnexpectedComputer += $Member }
         }
-        #if the computer object is not in one of the allowed OU's add it to the result array
-        if (!$found) { $UnexpectedComputer += $Member }
     }
     catch [Microsoft.ActiveDirectory.Management.ADServerDownException] {
         Write-Log "The AD WebService is down or not reachable $domain $($error[0].InvocationInfo.ScriptLineNumber). Can not verify unexpected computer objects." -Severity Error -EventID 1306
@@ -275,15 +275,18 @@ if ($null -eq $scope ){
 }
 #endregion
 #region Manage log file
-[int]$MaxLogFileSize = 1048576 #Maximum size of the log file
-if ($null -eq $config.LogPath -or $config.LogPath -eq ""){
-    $LogFile = "$($env:LOCALAPPDATA)\$($MyInvocation.MyCommand).log" #Name and path of the log file
-} else {
-    $LogFile = "$($config.LogPath)\$($MyInvocation.MyCommand).log" #Name and path of the log file
+$logPath = if ([string]::IsNullOrWhiteSpace($config.LogPath)) { Join-Path $env:LOCALAPPDATA "TierLevelIsolation.Logs" } else { $config.LogPath }
+$logFileName = "${scope} Computer Management on ${env:COMPUTERNAME}.log"
+$LogFile = Join-Path $logPath $logFileName 
+
+#ensure log path
+if (-not (Test-Path $logPath)) {
+    New-Item -Path $logPath -ItemType Directory -Force | Out-Null
 }
 
 #rename existing log files to *.sav if the currentlog file exceed the size of $MaxLogFileSize
 if (Test-Path $LogFile) {
+    [int]$MaxLogFileSize = 1MB #Maximum size of the log file
     if ((Get-Item $LogFile ).Length -gt $MaxLogFileSize) {
         if (Test-Path "$LogFile.sav") {
             Remove-Item "$LogFile.sav"

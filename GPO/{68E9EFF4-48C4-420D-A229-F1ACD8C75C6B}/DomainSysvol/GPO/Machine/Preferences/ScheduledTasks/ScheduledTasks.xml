@@ -168,7 +168,7 @@
       <Task version="1.2">
         <RegistrationInfo>
           <Author>Tiering\Administrator</Author>
-          <Description>Manage Tier 1 computer. This schedule task acce Tier 1 computer to the Tier 1 computer group</Description>
+          <Description>Manage Tier Level Isolation Tier 1 users</Description>
         </RegistrationInfo>
         <Principals>
           <Principal id="Author">
@@ -255,7 +255,7 @@
         <Actions Context="Author">
           <Exec>
             <Command>powershell.exe</Command>
-            <Arguments>-command "$GMSA = Get-ADServiceAccount -Identity '#GMSAName';$principal = New-ScheduledTaskPrincipal -LogonType Password -userID $GMSA.SID;Set-ScheduledTask 'Tier 0 User Management' -Principal $principal;Set-ScheduledTask 'Tier 1 User Management' -Principal $principal"</Arguments>
+            <Arguments>-command "$GMSA = "$((Get-AdDomain).NetBIOSName)\#GMSAName";$principal = New-ScheduledTaskPrincipal -LogonType Password -userID $GMSA.SID;Set-ScheduledTask 'Tier 0 Computer Management' -Principal $principal;Set-ScheduledTask 'Tier 1 Computer Management' -Principal $principal;Set-ScheduledTask 'Tier 0 User Management' -Principal $principal;Set-ScheduledTask 'Tier 1 User Management' -Principal $principal"</Arguments>
           </Exec>
                     <Exec>
             <Command>powershell.exe</Command>
