@@ -442,15 +442,31 @@ Write-Host "[2] Tier 0 and Tier 1"
 do{
     $strReadHost = Read-Host "Select which scope should be enabled (2)" 
     switch ($strReadHost) {
-        ""  { $scope = "All-Tiers"}
-        "0" { $scope = "Tier-0" }
-        "1" { $scope = "Tier-1" }
-        "2" { $scope = "All-Tiers"}
-        Default {$scope = ""}
+        ""  { 
+                $scope = "All-Tiers"
+                break
+            }
+        "0" { 
+                $scope = "Tier0"
+                break
+            }
+        "1" { 
+                $scope = "Tier1"
+                break
+            }
+        "2" { 
+                $scope = "All-Tiers"
+                break
+            }
+        Default {
+            $scope = ""
+            Write-Host "Invalid selection. Please select 0, 1 or 2." -ForegroundColor Red
+            break
+        }
     }
 }while ($scope -eq '')
 Set-TierLevelIsolationScope $scope
-if (($scope -eq "Tier-0") -or ( $scope -eq "All-Tiers") ){
+if (($scope -eq "Tier0") -or ( $scope -eq "All-Tiers") ){
     Write-Host "Tier 0 isolation parameter "
     do {
         $strReadHost = Read-Host "Distinguishedname of the Tier 0 Admin OU ($DefaultT0Users)"
@@ -474,7 +490,7 @@ if (($scope -eq "Tier-0") -or ( $scope -eq "All-Tiers") ){
     if ($strReadHost -eq ''){$strReadHost = $DefaultT0KerbAuthPolName}
     Set-TierLevelIsolationKerberosAuthenticationPolicy Tier0 $strReadHost -Force
 }
-if ($scope -eq "Tier-1" -or $scope -eq "All-Tiers"){
+if ($scope -eq "Tier1" -or $scope -eq "All-Tiers"){
     Write-Host "Tier 1 isolation parameter "
     do {
         $strReadHost = Read-Host "Distinguishedname of the Tier 1 Admin OU ($DefaultT1Users)"
@@ -810,24 +826,19 @@ try {
 
     $ScheduleTaskRaw = Get-Content "$PWD\GPO\{$GPOBackupID}\DomainSysvol\GPO\Machine\Preferences\ScheduledTasks\ScheduledTasks.xml" -Raw -ErrorAction Stop
     $ScheduleTaskRaw = $ScheduleTaskRaw.Replace("#ScriptPath", $ScriptTarget) 
-    $ScheduleTaskRaw = $ScheduleTaskRaw.Replace("#GMSAName", $GMSAName)
+    $ScheduleTaskRaw = $ScheduleTaskRaw.Replace("#GMSANAME", $GMSAName)
     [XML]$ScheduleTaskXML = $ScheduleTaskRaw
     switch ($scope){ 
-        "Tier-0" {
-            #Disalbe the Tier 0 server management tasks. We will only manage the Tier 1 server and user management tasks
+        "Tier0" {
+            #Disable the Tier 0 server management tasks. We will only manage the Tier 1 server and user management tasks
             $Task = $ScheduleTaskXML.ScheduledTasks.TaskV2 | Where-Object {$_.UID -eq '{D9E485BC-145A-47BC-B6C0-A3457662E26A}'}
             $Task.disabled = "1"  
-            #Disableing user context task         
-            $Task = $ScheduleTaskXML.ScheduledTasks.TaskV2 | Where-Object {$_.UID -eq '{832DD5A2-5AA7-4F99-8663-0D4855E5DA56}'}
-            $Task.disabled = "1"
           }
-        "Tier-1" {
+        "Tier1" {
             #Disabling Tier 0 server management tasks. We will only manage the Tier 1 server and user management tasks
             $Task = $ScheduleTaskXML.ScheduledTasks.TaskV2 | Where-Object {$_.UID -eq '{B1168190-7E2C-4177-9391-B1FFBCDF4774}'}
             $Task.disabled = "1"
-            #Disableing user context task
-            $Task = $ScheduleTaskXML.ScheduledTasks.TaskV2 | Where-Object {$_.UID -eq '{832DD5A2-5AA7-4F99-8663-0D4855E5DA56}'}
-            $Task.disabled = "1"
+
           }
     }
     if ($GMSAName -eq ""){

@@ -76,6 +76,11 @@ possibility of such damages
         The users will not added the users to the protected users group in the Set-TierLevelIsolation function if the parameter AddProtectedUsersGroup
     Version 0.2.20251226
         Issue with protected users fixed
+    Version 0.2.20260306
+        Code documentation update
+        New log file name with scope and computer name for better identification in shared log paths
+        restructuring of the code to improve readability and maintainability
+        new event log ID 2001 
 
     exist codes:
         0x3E8 - The script terminated with a unexpected error
@@ -86,9 +91,9 @@ possibility of such damages
 
 #>
 param(
-    [Parameter (Mandatory = $false)]
+    [Parameter (Mandatory = $false)] #if the parameter is not provided, the script will search for the configuration in Active Directory or on the SYSVOL path
     [string] $ConfigFile,
-    [Parameter (Mandatory = $false)]
+    [Parameter (Mandatory = $false)] #if the parameter is not provided, the script will use the configuration scope from the configuration file. This is relevant if the script is called from a scheduled task without parameters
     [ValidateSet("Tier-0", "Tier-1", "All-Tiers")]
     $scope
 )
@@ -176,14 +181,14 @@ function Write-Log {
 
     #Format the log message and write it to the log file
     $LogLine = "$(Get-Date -Format o), [$Severity],[$EventID], $Message"
-    if ($LogFile -ne $null) { #Safety check to make sure logfile isn't null
+    if ($null -ne $LogFile) { #Safety check to make sure logfile isn't null
         Add-Content -Path $LogFile -Value $LogLine
     }
     #If the severity is not debug write the even to the event log and format the output
     switch ($Severity) {
         'Error' { 
             Write-Host $Message -ForegroundColor Red
-            if ($LogFile -ne $null) { #Safety check to make sure logfile isn't null
+            if ($null -ne $LogFile) { #Safety check to make sure logfile isn't null
                 Add-Content -Path $LogFile -Value $Error[0].ScriptStackTrace 
             }
             Write-EventLog -LogName $eventLog -source $source -EventId $EventID -EntryType Error -Message $Message -Category 0
@@ -502,46 +507,53 @@ function RemoveUserFromAdditionalGroups{
 # Main program starts here
 ##############################################################################################################################
 #script Version 
-$ScriptVersion = "0.2.20251226"
+$ScriptVersion = "0.2.20260306"
 #Validate and create event log source if required
+#region Script Constants and Configuration Variables
+
+# Logging Configuration
+[int]$MaxLogFileSize = 1MB                    # Maximum size of the debug log file before rotation
+[string]$eventLog = "Application"             # Windows Event Log name for informational, warnings and errors
+[string]$source = "TierLevelIsolation"        # Event source identifier for Windows Event Log entries
+
+# Configuration Management
+$config = $null                               # Will hold the parsed JSON configuration object
+
+# Active Directory Configuration
+[string]$CurrentDomainDNS = (Get-ADDomain).DNSRoot                                              # Current domain DNS root name
+[string]$DefaultConfigFile = "\\$CurrentDomainDNS\SYSVOL\$CurrentDomainDNS\scripts\TierLevelIsolation.config"  # Default path to configuration file on SYSVOL
+
+# Privileged Domain Groups - Relative SIDs for built-in privileged groups
+# These groups require Tier 0 isolation and cleanup validation
+$PrivilegedDomainSid = @(
+    "512",  # Domain Admins - Full administrative access to domain
+    "520",  # Group Policy Creator Owner - Can create and modify Group Policy Objects
+    "522"   # Cloneable Domain Controllers - Domain controllers that can be cloned
+#   "527"   # Enterprise Key Admins (Windows Server 2016+) - Manage enterprise keys
+)
+#endregion
+
+####
+# check the event source exists. If not, create a new event source. Terminate the script if the event source is not available or created
 try {   
-    $eventLog = "Application"
-    $source = "TierLevelIsolation"
     # Check if the source exists; if not, create it
     if (-not [System.Diagnostics.EventLog]::SourceExists($source)) {
         [System.Diagnostics.EventLog]::CreateEventSource($source, $eventLog)
     }
 }
 catch {
-    Write-EventLog -logName $eventLog -source "Application" -EventId 0 -EntryType Error -Message "The event source $source could not be created. The script will use the default event source Application"
+    Write-EventLog -logName $eventLog -source "Application" -EventId 0 -EntryType Error -Message "$PSCommandPath The event source $source could not be created. The script will use the default event source Application"
     $source = "Application"
 }
-#region constants
-$config = $null #configuration object
-#default configuration file path. This path assumes that
-#the current domain must contains the Tier level user groups
-$CurrentDomainDNS = (Get-ADDomain).DNSRoot #get the current domain DNS name
-$DefaultConfigFile = "\\$CurrentDomainDNS\SYSVOL\$CurrentDomainDNS\scripts\TierLevelIsolation.config" #default configuration file path
-
-# A array relative SID of privileged groups
-$PrivilegedDomainSid = @(
-    "512", #Domain Admins
-    "520", #Group Policy Creator Owner
-    "522" #Cloneable Domain Controllers
-#   "527" #Enterprise Key Admins
-)
-#endregion
-
 
 #region read configuration
 try{
-    # read the configuration file from the provided path or from the default path
+    # Read the configuration file from the provided path or from the default path
     # Terminate the script if the configuration file cannot be found or is not readable
     if ($ConfigFile -eq '') {
         #if the config file parameter is not provided, read the configuration from the default path
         if ((Test-Path -Path $DefaultConfigFile)){
-            $config = Get-Content $DefaultConfigFile | ConvertFrom-Json  
-            Write-Log -Message "Read config from $ConfigFile" -Severity Debug -EventID 1101          
+            $config = Get-Content $DefaultConfigFile | ConvertFrom-Json       
         } else {
             Write-EventLog -LogName "Application" -source $source -Message "TierLevel Isolation Can't find the configuration in $DefaultConfigFile or Active Directory" -EntryType Error -EventID 0
             return 0xe7
@@ -551,7 +563,7 @@ try{
         # Start reading the configuration from the provided path    
         if (Test-Path -Path $ConfigFile){
             $config = Get-Content $ConfigFile | ConvertFrom-Json
-            Write-Log -Message "Read config from $ConfigFile" -Severity Debug -EventID 1101 
+            Write-Log -Message "Read config from $ConfigFile" -Severity Debug -EventID 2015 
             if ($null -eq $config){
                 Write-EventLog -LogName "Application" -source $source -Message "TierLevel Isolation Can't read the configuration from $ConfigFile" -EntryType Error -EventID 0
                 return 0x3E9    
@@ -563,23 +575,30 @@ try{
     }
 }
 catch {
-    Write-EventLog -LogName "Application" -Source "Application" -Message "error reading configuration" -EntryType Error -EventID 0
+    Write-EventLog -LogName "Application" -Source "Application" -Message "  General error reading configuration" -EntryType Error -EventID 0
     return 0x3E8
 }
 #region Manage log file
-$logPath = if ([string]::IsNullOrWhiteSpace($config.LogPath)) { Join-Path $env:LOCALAPPDATA "TierLevelIsolation.Logs" } else { $config.LogPath }
-$logFileName = "${scope} User Management on ${env:COMPUTERNAME}.log"
+#if the LogPath parameter in the configuration file is not set, 
+#the script will use the local appdata path of the user running the script. 
+#If the LogPath parameter is set but the path is not valid, 
+#the script will write a warning to the event log and use the local appdata path of the user running the script.   
+$logPath = if ([string]::IsNullOrWhiteSpace($config.LogPath)) { 
+    $env:LOCALAPPDATA 
+} else { 
+    if (Test-Path -Path $config.LogPath) {
+        $config.LogPath
+    } else {
+        Write-Log -Message "The log path $($config.LogPath) defined in the configuration file is not valid. The script will use the local appdata path of the user running the script." -Severity Warning -EventID 2001
+        $env:LOCALAPPDATA
+    }
+}
+$logFileName = "TierLevelIsolationUserManagement-$Scope-${env:COMPUTERNAME}.log" #Log file name with scope and computer name for better identification in shared log paths
 $LogFile = Join-Path $logPath $logFileName 
 
-#ensure log path
-if (-not (Test-Path $logPath)) {
-    New-Item -Path $logPath -ItemType Directory -Force | Out-Null
-}
-
-#rename existing log files to *.sav if the current log file exceed the size of $MaxLogFileSize
+# Rename existing log files to *.sav if the current log file exceed the size of $MaxLogFileSize. Existing .sav log files will be overwritten.
 if (Test-Path $LogFile) {
-    [int]$MaxLogFileSize = 1MB #Maximum size of the log file
-    if ((Get-Item $LogFile ).Length -gt $MaxLogFileSize) {
+    if ((Get-Item $LogFile ).Length -gt $MaxLogFileSize) { 
         if (Test-Path "$LogFile.sav") {
             Remove-Item "$LogFile.sav"
         }
@@ -592,7 +611,7 @@ Write-Log -Message "Tier Isolation user management $Scope version $ScriptVersion
 # This is relevant if the script is called from a scheduled task without parameters
 switch ($scope) {
     "Tier-0"{ 
-        if ($config.scope -eq "Tier1" -or $config.scope -eq "Tier-1"){
+        if ($config.scope -eq "Tier1" -or $config.scope -eq "Tier-1"){ # older configuration files might use "Tier-1" instead of "Tier1"
             Write-Log -Message "The scope parameter $scope does not match to the configuration scope $($config.scope) the script is terminated" -Severity Error -EventID 2006
             return 0x3EA
         } else {
@@ -630,6 +649,7 @@ switch ($config.ProtectedUsers) {
 foreach ($Domain in $config.Domains){
     #region Tier 0 users
     if ($scope -ne "Tier-1"){
+        # The Set-TierLevelIsolation function will apply the Kerberos Authentication Policy to all Tier 0 users in the OU defined in the configuration file and add the users to the protected users group if the AddProtectedUsersGroup parameter is set to true. The function will return true if all users in the OU are marked as sensitive and the Kerberos Authentication Policy is applied. If the function returns false, a warning will be logged in the event log.
         if ((Set-TierLevelIsolation -DomainDNS $Domain -OrgUnits $config.Tier0UsersPath -AddProtectedUsersGroup $T0ProtectedUsers -KerbAuthPolName $config.T0KerbAuthPolName)){
             Write-Log -Message "Tier 0 user isolated" -Severity Debug -EventID 2010
         } else{
@@ -639,6 +659,7 @@ foreach ($Domain in $config.Domains){
     #endregion
     #region Tier 1 users
     if ($scope -ne "Tier-0") {
+        # The Set-TierLevelIsolation function will apply the Kerberos Authentication Policy to all Tier 1 users in the OU defined in the configuration file and add the users to the protected users group if the AddProtectedUsersGroup parameter is set to true. The function will return true if all users in the OU are marked as sensitive and the Kerberos Authentication Policy is applied. If the function returns false, a warning will be logged in the event log.
         if ((Set-TierLevelIsolation -DomainDNS $Domain -OrgUnits $config.Tier1UsersPath -AddProtectedUsersGroup $T1ProtectedUsers -KerbAuthPolName $config.T1KerbAuthPolName)){
             Write-Log -Message "Tier 1 user isolated" -Severity Debug -EventID 2012
         } else {

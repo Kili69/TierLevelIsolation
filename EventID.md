@@ -9,7 +9,6 @@
 |1003    | Error       | Missing AD configuration settings                                  |
 |1004    | Error       | AD Web Service failed to connect                                   |
 |1100    | Debug       | Reading configuration file from default configuration path         |
-|1101    | Debug       | Reading configuration from file                                    |
 |1200    | Error       | Cannot find the Tier 0 computer group                              |
 |1201    | Debug       | Current count of member in the Tier 0 computer group               |
 |1202    | Error       | Can't find Tier 1 computer group                                   |
@@ -35,7 +34,9 @@
 
 |EventID|Severity    |Message                                                                      |
 |-------|------------|-----------------------------------------------------------------------------|
+|   0   | Error      | The event source is not registered.                                         |
 |2000   | Information| Script started                                                              |
+|2001   | Warning    | Invalida log file path                                                      |
 |2002   | Error      | Missing Kerberos Authentication Policy                                      |
 |2003   | Debug      | Failed to read the configuration form the config file                       |
 |2004   | Error      | configuration File missing                                                  |

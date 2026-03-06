@@ -57,6 +57,10 @@ possibility of such damages
     Version 0.2.20251202
         Added error handling if the AD web service is not available while checking unexpected computer objects
         Fixed a issue if the script is started with the configfile parameter
+    Version 0.2.20260306
+        Code documentation update
+        New log file name with scope and computer name for better identification in shared log paths
+        restructuring of the code to improve readability and maintainability
 
     Exit codes:
         0x3E8 - a general error occured while readinb the configuration file
@@ -67,9 +71,9 @@ possibility of such damages
 #>
 
 param(
-    [Parameter (Mandatory = $false)]
+    [Parameter (Mandatory = $false)] # The configuration file is not a mandatory parameter. If the parameter is not set, the script will search for the configuration in the Active Directory configuration partition or on the default path
     [string] $ConfigFile,
-    [Parameter (Mandatory = $false)]
+    [Parameter (Mandatory = $false)] # The scope parameter is not a mandatory parameter. If the parameter is not set, the script will use the scope defined in the configuration file. This is relevant if the script is called from a scheduled task without parameters
     [ValidateSet("Tier-0", "Tier-1", "All-Tiers")]
     $scope
 )
@@ -198,21 +202,21 @@ function Get-UnexpectedComputerObjects{
 ##############################################################################################################################
 
 #region constantes
-#Is the current domain DNS name.
-$CurrentDomainDNS = (Get-ADDomain).DNSRoot
-#The default configuration file is located in the SYSVOL path of the current domain
-$DefaultConfigFile = "\\$CurrentDomainDNS\SYSVOL\$CurrentDomainDNS\scripts\TierLevelIsolation.config"
-#The default path to the configuration in the Active Directory configuration partition
-#$ADconfigurationPath = "CN=Tier Level Isolation,CN=Services,$((Get-ADRootDSE).configurationNamingContext)"
+
+$CurrentDomainDNS = (Get-ADDomain).DNSRoot  #Is the current domain DNS name.
+$DefaultConfigFile = "\\$CurrentDomainDNS\SYSVOL\$CurrentDomainDNS\scripts\TierLevelIsolation.config"       #The default configuration file is located in the SYSVOL path of the current domain
+$eventLog = "Application"                   #The event log where the script will write the events. The script will try to register the event source "TierLevelIsolation" in the application log. If the registration failes, the script will write the events with the standard application event source to the event log.
+$source = "TierLevelIsolation"              #The event source used to write events to the event log. The script will try to register the event source "TierLevelIsolation" in the application log. If the registration failes, the script will write the events with the standard application event source to the event log.
+$GlobalCatalog = (Get-ADDomainController -Discover -Service GlobalCatalog -NextClosestSite ).HostName #using the next closest global catalog server
+[int]$MaxLogFileSize = 1MB                  #Maximum size of the log file. If the log file exceed this size, the existing log file will be renamed to *.sav and a new log file will be created. The existing .sav log file will be overwritten.
 #endregion
 
 #script Version 
-$ScriptVersion = "0.2.20251205"
+$ScriptVersion = "0.2.20260306"
 #validate the event source TierLevelIsolation is registered in the application log. If the registration failes
 #the events will be written with the standard application event source to the event log. 
 try {   
-    $eventLog = "Application"
-    $source = "TierLevelIsolation"
+
     # Check if the source exists; if not, create it
     if (-not [System.Diagnostics.EventLog]::SourceExists($source)) {
         [System.Diagnostics.EventLog]::CreateEventSource($source, $eventLog)
@@ -222,8 +226,6 @@ catch {
     Write-EventLog -logname $eventLog -source "Application" -EventId 0 -EntryType Error -Message "The event source $source could not be created. The script will use the default event source Application"
     $source = "Application"
 }
-#using the next closest global catalog server
-$GlobalCatalog = (Get-ADDomainController -Discover -Service GlobalCatalog -NextClosestSite ).HostName
 
 #region read configuration
 try{
@@ -231,24 +233,13 @@ try{
     #if the configuration is avaiable in the Active Directory configuration partition, the script will read the configuration from the AD
     #otherwise try to use the default configuration file
     if ($ConfigFile -eq '') {
-<#        if ($null -ne (Get-ADObject -Filter "DistinguishedName -eq '$ADconfigurationPath'")){
-            #Write-Log -Message "Read config from AD configuration partition" -Severity Debug -EventID 1002
-            Write-host "AD config lesen noch implementieren" -ForegroundColor Red -BackgroundColor DarkGray
-            return
+        if ((Test-Path -Path $DefaultConfigFile)){
+            $config = Get-Content $DefaultConfigFile | ConvertFrom-Json  
         } else {
-            #last resort if the configfile paramter is not available and no configuration is stored in the AD. check for the dafault configuration file
-#>            if ($null -eq $config){
-                if ((Test-Path -Path $DefaultConfigFile)){
-                    $config = Get-Content $DefaultConfigFile | ConvertFrom-Json  
-                    #Write-Log -Message "Read config from $ConfigFile" -Severity Debug -EventID 1101          
-                } else {
-                    Write-EventLog -LogName "Application" -source $source -Message "TierLevle Isolation Can't find the configuration in $DefaultConfigFile or Active Directory" -Severity Error -EventID 0
-                    return 0xe7
-                }
-            }
+            Write-EventLog -LogName "Application" -source $source -Message "TierLevle Isolation Can't find the configuration in $DefaultConfigFile or Active Directory" -Severity Error -EventID 0
+            return 0xe7
         }
-#    }
-    else {  
+    } else {  
         if (Test-Path -Path $ConfigFile){  
             $config = Get-Content $ConfigFile | ConvertFrom-Json 
             if ($null -eq $config) {
@@ -262,7 +253,6 @@ try{
             return 0x3EA
         }
     }
-
 }
 catch {
     Write-EventLog -LogName "Application" -Source $source -Message "error reading configuration" -EntryType Error -EventID 0
@@ -275,18 +265,12 @@ if ($null -eq $scope ){
 }
 #endregion
 #region Manage log file
-$logPath = if ([string]::IsNullOrWhiteSpace($config.LogPath)) { Join-Path $env:LOCALAPPDATA "TierLevelIsolation.Logs" } else { $config.LogPath }
-$logFileName = "${scope} Computer Management on ${env:COMPUTERNAME}.log"
+$logPath = if ([string]::IsNullOrWhiteSpace($config.LogPath)) { $env:LOCALAPPDATA } else { $config.LogPath }
+$logFileName = "TierLevelIsolationComputerManagement-$scope-${env:COMPUTERNAME}.log"
 $LogFile = Join-Path $logPath $logFileName 
-
-#ensure log path
-if (-not (Test-Path $logPath)) {
-    New-Item -Path $logPath -ItemType Directory -Force | Out-Null
-}
 
 #rename existing log files to *.sav if the currentlog file exceed the size of $MaxLogFileSize
 if (Test-Path $LogFile) {
-    [int]$MaxLogFileSize = 1MB #Maximum size of the log file
     if ((Get-Item $LogFile ).Length -gt $MaxLogFileSize) {
         if (Test-Path "$LogFile.sav") {
             Remove-Item "$LogFile.sav"
