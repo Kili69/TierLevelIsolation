@@ -24,7 +24,7 @@
     RootModule = '0.1\TierLevelIsolation.psm1'
     
     # Version number of this module.
-    ModuleVersion = '0.1.20251223'
+    ModuleVersion = '0.1.20260825.2'
     
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -89,6 +89,8 @@
                             "Add-TierLevelIsolationUserPath",
   
                             "Get-TierLevelIsolationConfiguration",
+                            "Get-TierLevelIsolationGroup",
+                            "Get-DebugLogPath",
   
                             "Remove-TierLevelIsolationComputerPath",
                             "Remove-TierLevelIsolationDomain",
@@ -97,6 +99,7 @@
                             "Remove-TierLevelIsolationUserPath",
 
                             "Set-TierLevelIsolationComputerGroup",
+                            "Set-DebugLogPath",
                             "Set-TierLevelPrivilegedGroupsCleanUpState",  
                             "Set-TierLevelIsolationKerberosAuthenticationPolicy",
                             "Set-TierLevelIsolationScope",
@@ -128,6 +131,9 @@
 
         # Tags applied to this module. These help with module discovery in online galleries.
         Tags = @('ActiveDirectory','Kerberos','TierModel','Security','Authentication','KerberosPolicy')
+
+        # ActiveDirectory is provided by Windows RSAT and is not published to PSGallery.
+        ExternalModuleDependencies = @('ActiveDirectory')
 
         # A URL to the license for this module.
         LicenseUri = 'https://github.com/Kili69/TierLevelIsolation/blob/main/LICENSE'

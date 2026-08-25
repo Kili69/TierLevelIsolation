@@ -61,6 +61,8 @@ possibility of such damages
         Code documentation update
         New log file name with scope and computer name for better identification in shared log paths
         restructuring of the code to improve readability and maintainability
+    Version 0.2.20260825.1
+        Aligned event IDs and event source handling with Windows Event Log guidance
 
     Exit codes:
         0x3E8 - a general error occured while readinb the configuration file
@@ -96,7 +98,7 @@ param(
 .PARAMETER EventID
     Is the event ID logged in the application log
 .EXAMPLE
-    write-log -Message "My message" - Severity Information -EventID 0
+    Write-Log -Message "My message" -Severity Information -EventID 1000
         This will create a new log line in the debug log file, create a eventlog entry in the application log and writes the 
         message parameter to the console
 #>
@@ -123,15 +125,21 @@ function Write-Log {
         'Error' { 
             Write-Host $Message -ForegroundColor Red
             Add-Content -Path $LogFile -Value $Error[0].ScriptStackTrace 
-            Write-EventLog -LogName $eventLog -source $source -EventId $EventID -EntryType Error -Message $Message 
+            if ($EventLogAvailable) {
+                Write-EventLog -LogName $eventLog -source $source -EventId $EventID -EntryType Error -Message $Message
+            }
         }
         'Warning' { 
-            Write-Host $Message -ForegroundColor Yellow 
-            Write-EventLog -LogName $eventLog -source $source -EventId $EventID -EntryType Warning -Message $Message
+            Write-Host $Message -ForegroundColor Yellow
+            if ($EventLogAvailable) {
+                Write-EventLog -LogName $eventLog -source $source -EventId $EventID -EntryType Warning -Message $Message
+            }
         }
         'Information' { 
-            Write-Host $Message 
-            Write-EventLog -LogName $eventLog -source $source -EventId $EventID -EntryType Information -Message $Message
+            Write-Host $Message
+            if ($EventLogAvailable) {
+                Write-EventLog -LogName $eventLog -source $source -EventId $EventID -EntryType Information -Message $Message
+            }
         }
     }
 }
@@ -191,7 +199,7 @@ function Get-UnexpectedComputerObjects{
         }
     }
     catch [Microsoft.ActiveDirectory.Management.ADServerDownException] {
-        Write-Log "The AD WebService is down or not reachable $domain $($error[0].InvocationInfo.ScriptLineNumber). Can not verify unexpected computer objects." -Severity Error -EventID 1306
+        Write-Log "The AD WebService is down or not reachable $domain $($error[0].InvocationInfo.ScriptLineNumber). Can not verify unexpected computer objects." -Severity Warning -EventID 1306
     }
     return $UnexpectedComputer
  }
@@ -205,16 +213,17 @@ function Get-UnexpectedComputerObjects{
 
 $CurrentDomainDNS = (Get-ADDomain).DNSRoot  #Is the current domain DNS name.
 $DefaultConfigFile = "\\$CurrentDomainDNS\SYSVOL\$CurrentDomainDNS\scripts\TierLevelIsolation.config"       #The default configuration file is located in the SYSVOL path of the current domain
-$eventLog = "Application"                   #The event log where the script will write the events. The script will try to register the event source "TierLevelIsolation" in the application log. If the registration failes, the script will write the events with the standard application event source to the event log.
-$source = "TierLevelIsolation"              #The event source used to write events to the event log. The script will try to register the event source "TierLevelIsolation" in the application log. If the registration failes, the script will write the events with the standard application event source to the event log.
+$eventLog = "Application"                   #The event log where the script writes events when the TierLevelIsolation source is available.
+$source = "TierLevelIsolation"              #The dedicated event source. Event Log output is disabled if this source cannot be registered.
+$EventLogAvailable = $true
 $GlobalCatalog = (Get-ADDomainController -Discover -Service GlobalCatalog -NextClosestSite ).HostName #using the next closest global catalog server
 [int]$MaxLogFileSize = 1MB                  #Maximum size of the log file. If the log file exceed this size, the existing log file will be renamed to *.sav and a new log file will be created. The existing .sav log file will be overwritten.
 #endregion
 
 #script Version 
-$ScriptVersion = "0.2.20260306"
-#validate the event source TierLevelIsolation is registered in the application log. If the registration failes
-#the events will be written with the standard application event source to the event log. 
+$ScriptVersion = "0.2.20260825.1"
+#Validate that the TierLevelIsolation event source is registered in the application log.
+#Disable Event Log output for this run if the source cannot be registered.
 try {   
 
     # Check if the source exists; if not, create it
@@ -223,8 +232,8 @@ try {
     }
 }
 catch {
-    Write-EventLog -logname $eventLog -source "Application" -EventId 0 -EntryType Error -Message "The event source $source could not be created. The script will use the default event source Application"
-    $source = "Application"
+    $EventLogAvailable = $false
+    Write-Warning "The event source $source could not be created. Windows Event Log output is disabled for this run."
 }
 
 #region read configuration
@@ -236,26 +245,34 @@ try{
         if ((Test-Path -Path $DefaultConfigFile)){
             $config = Get-Content $DefaultConfigFile | ConvertFrom-Json  
         } else {
-            Write-EventLog -LogName "Application" -source $source -Message "TierLevle Isolation Can't find the configuration in $DefaultConfigFile or Active Directory" -Severity Error -EventID 0
+            if ($EventLogAvailable) {
+                Write-EventLog -LogName $eventLog -source $source -Message "TierLevel Isolation can't find the configuration in $DefaultConfigFile or Active Directory" -EntryType Error -EventID 1101
+            }
             return 0xe7
         }
     } else {  
         if (Test-Path -Path $ConfigFile){  
             $config = Get-Content $ConfigFile | ConvertFrom-Json 
             if ($null -eq $config) {
-                Write-EventLog -LogName "Application" -source $source -Message "TierLevel Isolation Can't read the configuration file $ConfigFile" -EntryType Error -EventID 0
+                if ($EventLogAvailable) {
+                    Write-EventLog -LogName $eventLog -source $source -Message "TierLevel Isolation can't read the configuration file $ConfigFile" -EntryType Error -EventID 1102
+                }
                 Write-Output "An error occured while reading the configuration file $ConfigFile. The script will exit with code 0x3EB"
                 return 0x3EB
             }
         } else {
-            Write-EventLog -LogName "Application" -source $source -Message "TierLevel Isolation Can't find the configuration file $ConfigFile" -EntryType Error -EventID 0
+            if ($EventLogAvailable) {
+                Write-EventLog -LogName $eventLog -source $source -Message "TierLevel Isolation can't find the configuration file $ConfigFile" -EntryType Error -EventID 1103
+            }
             write-output "An error occured while reading the configuration file $ConfigFile. The script will exit with code 0x3EA"
             return 0x3EA
         }
     }
 }
 catch {
-    Write-EventLog -LogName "Application" -Source $source -Message "error reading configuration" -EntryType Error -EventID 0
+    if ($EventLogAvailable) {
+        Write-EventLog -LogName $eventLog -Source $source -Message "An unexpected error occurred while reading the configuration" -EntryType Error -EventID 1104
+    }
     Write-Output " An error occured while reading the configuration file $ConfigFile. The script will exit with code 0x3E8"
     return 0x3E8
 }

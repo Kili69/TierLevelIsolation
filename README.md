@@ -1,4 +1,26 @@
 # TierLevelIsolation
+
+## Publish to PowerShell Gallery
+
+Validate the module package without uploading it:
+
+```powershell
+.\publish.ps1
+```
+
+For a release, create an API key on PowerShell Gallery and enter it without
+placing it in the PowerShell command history:
+
+```powershell
+$secureKey = Read-Host 'PSGallery API key' -AsSecureString
+$env:PSGALLERY_API_KEY = [System.Net.NetworkCredential]::new('', $secureKey).Password
+.\publish.ps1 -Publish
+Remove-Item Env:PSGALLERY_API_KEY
+```
+
+Increment `ModuleVersion` in `module\TierLevelIsolation.psd1` before every
+subsequent release because PowerShell Gallery versions are immutable.
+
 ## Overview 
 This solution implements Tier Level isolation as described in the blog "Protection Tier 0 the modern way". It prepares your Active Directory forest to support Kerberos Authentication Policies, creating prerequisites to isolate Tier 0 or Tier 1 and automate the Tier 0 / Tier 1 user management. The Kerberos Authentication Policy ensure privileged accounts must use Kerberos as authentication protocol and can only request Kerberos TGT on predefined computers. 
 The solution automates the management of Tier 0 and Tier 1 users with Kerberos Authentication Policies through scripts. One script adds AD-Computer objects to an AD group included in the Kerberos Authentication Policy claim. Another script applies the policy to Tier 0 / Tier 1 users in the correct OU, and for Tier 0, removes users from privileged groups if they are not located in the correct OU.

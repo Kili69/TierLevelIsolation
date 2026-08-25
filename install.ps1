@@ -2,7 +2,7 @@
 Script Info
 
 Author: Andreas Lucas [MSFT]
-Download: https://github.com/Kili69/Tier0-User-Management
+Download: https://github.com/Kili69/TierLevelIsolation
 
 Disclaimer:
 This sample script is not supported under any Microsoft standard support program or service. 
@@ -87,10 +87,19 @@ possibility of such damages
     Version 0.2.20260120
         [Kili69]
         Fixed a bug in the selection of the Tier-Level
+    Version 0.2.20260306
+    Version 0.2.20260825.1
+        Protected Users configuration is only shown in advanced setup mode
+    Version 0.2.20260825.2
+        Added debug log path configuration to advanced setup mode
+    Version 0.2.20260825.3
+        Display the current domain during OU validation
+        Use values from an existing configuration as setup defaults
 
 #>
 param(
-    [switch]$InstallPSModuleOnly
+    [switch]$InstallPSModuleOnly,
+    [switch]$AdvancedSetupMode
 )
 <# Function create the entire OU path of the relative distinuished name without the domain component. This function
 is required to provide the same OU structure in the entrie forest
@@ -183,9 +192,9 @@ function New-TierLevelOU {
     is the name of the computer where the GMSA is allowed to logon
 .OUTPUTS
     $True
-        ...
+        This function will return $true if the GMSA already exists or if the GMSA is successfully created. If the GMSA is successfully created, it will be added to the Enterprise Admins group if it is not already a member of this group.
     $False
-        ...
+        This function will return $false if an error occurs while creating the GMSA.
 #>
 function New-GMSA {
     [cmdletBinding (SupportsShouldProcess)]
@@ -270,6 +279,8 @@ function IsMemberOfEnterpriseAdmins{
     If the user does not provide any input, all domains will be selected by default.
 .PARAMETER Domains
     An array of domain names to be displayed for selection. This parameter is mandatory and should be provided as an array of strings.
+.PARAMETER DefaultDomains
+    Domains selected by default when the user does not provide any input.
 .OUTPUTS
     An array of selected domain names based on the user's input. If the user selects multiple domains, they will be returned as an array. If no input is provided, all domains will be returned.
 .EXAMPLE
@@ -281,8 +292,18 @@ function IsMemberOfEnterpriseAdmins{
 function Get-SelectedDomains {
     param(
         [Parameter (Mandatory, Position = 0)]
-        [string[]]$Domains
+        [string[]]$Domains,
+        [Parameter (Mandatory = $false, Position = 1)]
+        [string[]]$DefaultDomains = @()
     )
+    $DefaultDomainIndices = @(
+        for ($i = 0; $i -lt $Domains.Count; $i++) {
+            if ($DefaultDomains -contains $Domains[$i]) {
+                $i
+            }
+        }
+    )
+    $DefaultSelection = if ($DefaultDomainIndices.Count -gt 0) { $DefaultDomainIndices -join "," } else { $Domains.Count }
     # loop to display the list of domains until the user selects at least one valid domain or all domains
     do {
         # Show all available domains with their indices for selection
@@ -291,9 +312,9 @@ function Get-SelectedDomains {
         }
         Write-Host "[$($i)] all domains"
         # Prompt the user to select domains by entering their indices separated by commas
-        $strReadIndex  = Read-Host "Select domains (you can select multiple domain separated by ',' [$i])"
+        $strReadIndex  = Read-Host "Select domains (you can select multiple domain separated by ',' [$DefaultSelection])"
         if ($strReadIndex -eq '') {
-            $strReadIndex = "$i" #select all domains if no input is provided
+            $strReadIndex = $DefaultSelection
         }
         $SelectedDomains = @()
         try {           
@@ -320,7 +341,7 @@ function Get-SelectedDomains {
 #####################################################################################################################################################################################
 #region  Constanst and default value
 #####################################################################################################################################################################################
-$ScriptVersion = "0.2.20251014"
+$ScriptVersion = "0.2.20260825.3"
 try{
     Import-Module ActiveDirectory -ErrorAction Stop
     Import-Module GroupPolicy  -ErrorAction Stop
@@ -361,6 +382,7 @@ $DefaultTGTLifeTime = 240
 $DefaultGMSAName = "TierLevel-mgmt"
 #Default script location path
 $ScriptTarget              = "\\$CurrentDomainDNS\SYSVOL\$CurrentDomainDNS\scripts"
+$ModuleTarget              = "\\$CurrentDomainDNS\SYSVOL\$CurrentDomainDNS\PSModules\TierLevelIsolation"
 #Default FQDN configuration file path
 $ConfigFile                = "$ScriptTarget\TierLevelIsolation.config"
 #constantes
@@ -396,24 +418,27 @@ Write-Host "Tier 0 / Tier 1 isolation setup script ($ScriptVersion)" -Foreground
 #region install TierLevelIsolation module
 try{
     $ModulePath = Join-Path $Env:ProgramFiles\WindowsPowerShell\Modules "TierLevelIsolation"
-    if (Test-Path $ModulePath) {
-        Write-Host "The TierLevelIsolation module is already installed" -ForegroundColor Green
+    $SourceModuleManifest = Join-Path $PSScriptRoot "module\TierLevelIsolation.psd1"
+    $TargetModuleManifest = Join-Path $ModulePath "TierLevelIsolation.psd1"
+    $SourceModuleVersion = [version](Import-PowerShellDataFile $SourceModuleManifest).ModuleVersion
+    $InstalledModuleVersion = if (Test-Path $TargetModuleManifest) {
+        [version](Import-PowerShellDataFile $TargetModuleManifest).ModuleVersion
     } else {
-        Write-Host "Installing the TierLevelIsolation module" -ForegroundColor Green        
-        New-Item -Path $ModulePath -ItemType Directory -ErrorAction Stop | Out-Null
-        copy-item -Path "$PSScriptRoot\module\*" -Destination $ModulePath -Force -recurse -ErrorAction Stop
-        Write-Host "The TierLevelIsolation module is installed" -ForegroundColor Green
-
+        [version]'0.0'
+    }
+    if ($InstalledModuleVersion -lt $SourceModuleVersion) {
+        Write-Host "Installing TierLevelIsolation module version $SourceModuleVersion" -ForegroundColor Green
+        New-Item -Path $ModulePath -ItemType Directory -Force -ErrorAction Stop | Out-Null
+        Copy-Item -Path "$PSScriptRoot\module\*" -Destination $ModulePath -Force -Recurse -ErrorAction Stop
+        Write-Host "The TierLevelIsolation module is installed or updated" -ForegroundColor Green
+    } else {
+        Write-Host "TierLevelIsolation module version $InstalledModuleVersion is already installed" -ForegroundColor Green
     }
     if ($InstallPSModuleOnly){
         exit
     }
-    if ($null -eq (Get-Module -Name TierLevelIsolation)){
-        Write-Host "Loading the TierLevelIsolation module" -ForegroundColor Green
-        Import-module TierLevelIsolation -ErrorAction Stop
-    } else {
-        Write-Host "The TierLevelIsolation module is already loaded" -ForegroundColor Green
-    }
+    Write-Host "Loading the TierLevelIsolation module" -ForegroundColor Green
+    Import-Module $TargetModuleManifest -Force -ErrorAction Stop
 } catch {
     Write-Host "Failed to install the TierLevelIsolation module" -ForegroundColor Red
     Write-Host $Error[0].Exception.Message -ForegroundColor Red
@@ -421,6 +446,12 @@ try{
 }
 #endregion
 #region Parameter collection
+$ExistingInstallation = Test-Path -LiteralPath $ConfigFile -PathType Leaf
+$ExistingConfiguration = Get-TierLevelIsolationConfiguration
+if ($ExistingInstallation) {
+    Write-Host "Existing Tier Level Isolation configuration found. Previous values are used as defaults." -ForegroundColor Green
+}
+
 if (!(IsMemberOfEnterpriseAdmins)){
     Write-Host "Enterprise Administrator privileges required to access to configuration partition" -ForegroundColor Yellow
     $strReadHost = Read-Host "Do you want to continue without Enterprise Administrator privileges y/[n]"
@@ -430,7 +461,7 @@ if (!(IsMemberOfEnterpriseAdmins)){
         return
     }
 }
-$Domains = Get-SelectedDomains (GEt-ADForest).Domains 
+$Domains = Get-SelectedDomains -Domains (Get-ADForest).Domains -DefaultDomains $ExistingConfiguration.Domains
 $Domains  | Add-TierLevelIsolationDomain 
 
 
@@ -439,13 +470,17 @@ Write-Host "Scope-Level:"
 Write-Host "[0] Tier-0"
 Write-Host "[1] Tier-1"
 Write-Host "[2] Tier 0 and Tier 1"
+$DefaultScopeSelection = switch ($ExistingConfiguration.scope) {
+    "Tier-0" { "0" }
+    "Tier-1" { "1" }
+    Default { "2" }
+}
 do{
-    $strReadHost = Read-Host "Select which scope should be enabled (2)" 
+    $strReadHost = Read-Host "Select which scope should be enabled ($DefaultScopeSelection)"
+    if ($strReadHost -eq '') {
+        $strReadHost = $DefaultScopeSelection
+    }
     switch ($strReadHost) {
-        ""  { 
-                $scope = "All-Tiers"
-                break
-            }
         "0" { 
                 $scope = "Tier0"
                 break
@@ -468,77 +503,137 @@ do{
 Set-TierLevelIsolationScope $scope
 if (($scope -eq "Tier0") -or ( $scope -eq "All-Tiers") ){
     Write-Host "Tier 0 isolation parameter "
+    $Tier0UsersDefault = if ($ExistingConfiguration.Tier0UsersPath.Count -gt 0) { $ExistingConfiguration.Tier0UsersPath -join "; " } else { $DefaultT0Users }
     do {
-        $strReadHost = Read-Host "Distinguishedname of the Tier 0 Admin OU ($DefaultT0Users)"
-        if ($strReadHost -eq ''){$strReadHost = $DefaultT0Users}    
-        Add-TierLevelIsolationUserPath Tier0 $strReadHost
+        $strReadHost = Read-Host "Distinguishedname of the Tier 0 Admin OU ($Tier0UsersDefault)"
+        if ($strReadHost -ne '') {
+            Add-TierLevelIsolationUserPath Tier0 $strReadHost
+        } elseif ($ExistingConfiguration.Tier0UsersPath.Count -eq 0) {
+            Add-TierLevelIsolationUserPath Tier0 $DefaultT0Users
+        }
         $strReadHost = Read-Host "Do you want to add another Tier 0 Admin OU (y/[n])"
     } while ($strReadHost -like "y*")
+    $Tier0ServiceAccountPathDefault = if ($ExistingConfiguration.Tier0ServiceAccountPath.Count -gt 0) { $ExistingConfiguration.Tier0ServiceAccountPath -join "; " } else { $DefaultT0ServiceAccountPath }
     do {
-        $strReadHost = Read-Host "Distinguishedname of the Tier 0 service account OU($defaultT0ServiceAccountPath)"
-        if ($strReadHost -eq ''){$strReadHost = $DefaultT0ServiceAccountPath}
-        Add-TierLevelIsolationServiceAccountPath Tier0 $strReadHost
+        $strReadHost = Read-Host "Distinguishedname of the Tier 0 service account OU ($Tier0ServiceAccountPathDefault)"
+        if ($strReadHost -ne '') {
+            Add-TierLevelIsolationServiceAccountPath Tier0 $strReadHost
+        } elseif ($ExistingConfiguration.Tier0ServiceAccountPath.Count -eq 0) {
+            Add-TierLevelIsolationServiceAccountPath Tier0 $DefaultT0ServiceAccountPath
+        }
         $strReadHost = Read-Host "Do you want to add another Tier 0 service account OU (y/[n])"
     } while ($strReadHost -like "y*")
+    $Tier0ComputersDefault = if ($ExistingConfiguration.Tier0ComputerPath.Count -gt 0) { $ExistingConfiguration.Tier0ComputerPath -join "; " } else { $DefaultT0Computers }
     do {
-        $strReadHost = Read-Host "Distinguishedname of the Tier 0 server OU ($defaultT0Computers)"
-        if ($strReadHost -eq ''){$strReadHost = $DefaultT0Computers}
-        Add-TierLevelIsolationComputerPath Tier0 $strREadHost
+        $strReadHost = Read-Host "Distinguishedname of the Tier 0 server OU ($Tier0ComputersDefault)"
+        if ($strReadHost -ne '') {
+            Add-TierLevelIsolationComputerPath Tier0 $strReadHost
+        } elseif ($ExistingConfiguration.Tier0ComputerPath.Count -eq 0) {
+            Add-TierLevelIsolationComputerPath Tier0 $DefaultT0Computers
+        }
         $strReadHost = Read-Host "Do you want to add another Tier 0 server OU (y/[n])"
     }while ($strReadHost -like "y*")
-    $strReadHost = Read-Host "Provide the Tier 0 Kerberos Authentication policy name ($DefaultT0KerbAuthPolName)"
-    if ($strReadHost -eq ''){$strReadHost = $DefaultT0KerbAuthPolName}
+    $Tier0KerberosPolicyDefault = if ($ExistingConfiguration.T0KerbAuthPolName) { $ExistingConfiguration.T0KerbAuthPolName } else { $DefaultT0KerbAuthPolName }
+    $strReadHost = Read-Host "Provide the Tier 0 Kerberos Authentication policy name ($Tier0KerberosPolicyDefault)"
+    if ($strReadHost -eq ''){$strReadHost = $Tier0KerberosPolicyDefault}
     Set-TierLevelIsolationKerberosAuthenticationPolicy Tier0 $strReadHost -Force
 }
 if ($scope -eq "Tier1" -or $scope -eq "All-Tiers"){
     Write-Host "Tier 1 isolation parameter "
+    $Tier1UsersDefault = if ($ExistingConfiguration.Tier1UsersPath.Count -gt 0) { $ExistingConfiguration.Tier1UsersPath -join "; " } else { $DefaultT1Users }
     do {
-        $strReadHost = Read-Host "Distinguishedname of the Tier 1 Admin OU ($DefaultT1Users)"
-        if ($strReadHost -eq ''){$strReadHost = $DefaultT1Users}
-        Add-TierLevelIsolationUserPath Tier1 $strReadHost
+        $strReadHost = Read-Host "Distinguishedname of the Tier 1 Admin OU ($Tier1UsersDefault)"
+        if ($strReadHost -ne '') {
+            Add-TierLevelIsolationUserPath Tier1 $strReadHost
+        } elseif ($ExistingConfiguration.Tier1UsersPath.Count -eq 0) {
+            Add-TierLevelIsolationUserPath Tier1 $DefaultT1Users
+        }
         $strReadHost = Read-Host "Do you want to add another Tier 1 Admin OU (y/[n])"
     } while ($strReadHost -like "y*")
+    $Tier1ServiceAccountPathDefault = if ($ExistingConfiguration.Tier1ServiceAccountPath.Count -gt 0) { $ExistingConfiguration.Tier1ServiceAccountPath -join "; " } else { $DefaultT1ServiceAccountPath }
     do{
-        $strReadHost = Read-Host "Distinguishedname of the Tier 1 service account OU ($DefaultT1ServiceAccountPath)"
-        if ($strReadHost -eq ''){$strReadHost = $DefaultT1ServiceAccountPath}
-        Add-TierLevelIsolationServiceAccountPath Tier1 $strReadHost
+        $strReadHost = Read-Host "Distinguishedname of the Tier 1 service account OU ($Tier1ServiceAccountPathDefault)"
+        if ($strReadHost -ne '') {
+            Add-TierLevelIsolationServiceAccountPath Tier1 $strReadHost
+        } elseif ($ExistingConfiguration.Tier1ServiceAccountPath.Count -eq 0) {
+            Add-TierLevelIsolationServiceAccountPath Tier1 $DefaultT1ServiceAccountPath
+        }
         $strReadHost = Read-Host "Do you want to add another Tier 1 service account OU (y/[n])"
     } while ($strReadHost -like "y*")
+    $Tier1ComputersDefault = if ($ExistingConfiguration.Tier1ComputerPath.Count -gt 0) { $ExistingConfiguration.Tier1ComputerPath -join "; " } else { $DefaultT1Computers }
     do {
-        $strReadHost = Read-Host "Distinguishedname of the Tier 1 server OU ($DefaultT1Computers)"
-        if ($strReadHost -eq ''){$strReadHost = $DefaultT1Computers}
-        Add-TierLevelIsolationComputerPath Tier1 $strReadHost
+        $strReadHost = Read-Host "Distinguishedname of the Tier 1 server OU ($Tier1ComputersDefault)"
+        if ($strReadHost -ne '') {
+            Add-TierLevelIsolationComputerPath Tier1 $strReadHost
+        } elseif ($ExistingConfiguration.Tier1ComputerPath.Count -eq 0) {
+            Add-TierLevelIsolationComputerPath Tier1 $DefaultT1Computers
+        }
         $strReadHost = Read-Host "Do you want to add another Tier 1 server OU (y/[n])"
     }while ($strReadHost -like "y*")
-    $strReadHost = Read-Host "Provide the Tier 1 Kerberos Authentication policy name ($DefaultT1KerbAuthPolName)"
-    if ($strReadHost -eq ''){$strReadHost = $DefaultT1KerbAuthPolName}
+    $Tier1KerberosPolicyDefault = if ($ExistingConfiguration.T1KerbAuthPolName) { $ExistingConfiguration.T1KerbAuthPolName } else { $DefaultT1KerbAuthPolName }
+    $strReadHost = Read-Host "Provide the Tier 1 Kerberos Authentication policy name ($Tier1KerberosPolicyDefault)"
+    if ($strReadHost -eq ''){$strReadHost = $Tier1KerberosPolicyDefault}
     Set-TierLevelIsolationKerberosAuthenticationPolicy Tier1 $strReadHost -force
 }
 if ($scope -eq "Tier0" -or $scope -eq "All-Tiers"){
     Write-Host "Tier 0 server group parameter "
-    $strReadHost = Read-Host "Provide the Tier 0 server samaccount group name ($DefaultT0ComputerGroupName)"
-    if ($strReadHost -eq ''){$strReadHost = $DefaultT0ComputerGroupName}
+    $Tier0ComputerGroupDefault = if ($ExistingConfiguration.Tier0ComputerGroup) { $ExistingConfiguration.Tier0ComputerGroup } else { $DefaultT0ComputerGroupName }
+    $strReadHost = Read-Host "Provide the Tier 0 server samaccount group name ($Tier0ComputerGroupDefault)"
+    if ($strReadHost -eq ''){$strReadHost = $Tier0ComputerGroupDefault}
     Set-TierLevelIsolationComputerGroup Tier0 $strReadHost -Force
 }
 if (($scope -eq "Tier1") -or ( $scope -eq "All-Tiers")){
     Write-Host "Tier 1 isolation parameter "
-    $strReadHost = Read-Host "Provide the Tier 1 server samaccount group name ($DefaultT1ComputerGroupName)"
-    if ($strReadHost -eq ''){$strReadHost = $DefaultT1ComputerGroupName}
+    $Tier1ComputerGroupDefault = if ($ExistingConfiguration.Tier1ComputerGroup) { $ExistingConfiguration.Tier1ComputerGroup } else { $DefaultT1ComputerGroupName }
+    $strReadHost = Read-Host "Provide the Tier 1 server samaccount group name ($Tier1ComputerGroupDefault)"
+    if ($strReadHost -eq ''){$strReadHost = $Tier1ComputerGroupDefault}
     Set-TierLevelIsolationComputerGroup Tier1 $strReadHost -Force
 }
-Write-Host "Do you want to manage protected users group with tiering?"
-Write-Host "[0] Tier-0 users will be added to protected users"
-Write-Host "[1] Tier-1 users will be added tp protected users"
-Write-Host "[2] Tier-0 and Tier-1 users will be added to protected users"
-Write-Host "[3] Protected users will not be managed with Tiering"
-$strReadHost = Read-Host "Select protected users level [3]"
-switch ($strReadHost) {
-    "0" { Set-TierLevelProtectedUsersState "Tier-0" }
-    "1" { Set-TierLevelProtectedUsersState "Tier-1" }
-    "2" { Set-TierLevelProtectedUsersState "All-Tiers" }
-    Default { Set-TierLevelProtectedUsersState "None" }
+if ($AdvancedSetupMode) {
+    Write-Host "Do you want to manage protected users group with tiering?"
+    Write-Host "[0] Tier-0 users will be added to protected users"
+    Write-Host "[1] Tier-1 users will be added tp protected users"
+    Write-Host "[2] Tier-0 and Tier-1 users will be added to protected users"
+    Write-Host "[3] Protected users will not be managed with Tiering"
+    $DefaultProtectedUsersSelection = if (($ExistingConfiguration.ProtectedUsers -contains "Tier-0") -and ($ExistingConfiguration.ProtectedUsers -contains "Tier-1")) {
+        "2"
+    } elseif ($ExistingConfiguration.ProtectedUsers -contains "Tier-0") {
+        "0"
+    } elseif ($ExistingConfiguration.ProtectedUsers -contains "Tier-1") {
+        "1"
+    } else {
+        "3"
+    }
+    $strReadHost = Read-Host "Select protected users level [$DefaultProtectedUsersSelection]"
+    if ($strReadHost -eq '') {
+        $strReadHost = $DefaultProtectedUsersSelection
+    }
+    switch ($strReadHost) {
+        "0" { Set-TierLevelProtectedUsersState "Tier-0" }
+        "1" { Set-TierLevelProtectedUsersState "Tier-1" }
+        "2" { Set-TierLevelProtectedUsersState "All-Tiers" }
+        Default { Set-TierLevelProtectedUsersState "None" }
+    }
+    do {
+        $LogPathDefault = $ExistingConfiguration.LogPath
+        $LogPathPrompt = if ([string]::IsNullOrWhiteSpace($LogPathDefault)) { "leave empty to use local AppData" } else { $LogPathDefault }
+        $LogPath = Read-Host "Provide the debug log directory ($LogPathPrompt)"
+        if ([string]::IsNullOrWhiteSpace($LogPath)) {
+            $LogPath = $LogPathDefault
+        }
+        $LogPathIsValid = [string]::IsNullOrWhiteSpace($LogPath) -or (Test-Path -LiteralPath $LogPath -PathType Container)
+        if (-not $LogPathIsValid) {
+            Write-Host "The log directory '$LogPath' does not exist or is not accessible." -ForegroundColor Red
+        }
+    } while (-not $LogPathIsValid)
+    Set-DebugLogPath -LogPath $LogPath
 }
-$strReadHost = Read-Host "Enable privileged Tier 0 group cleanup [Y/N] (y)"
+$DefaultPrivilegedGroupsCleanUp = if ($ExistingInstallation) { [System.Convert]::ToBoolean($ExistingConfiguration.PrivilegedGroupsCleanUp) } else { $true }
+$DefaultPrivilegedGroupsCleanUpSelection = if ($DefaultPrivilegedGroupsCleanUp) { "y" } else { "n" }
+$strReadHost = Read-Host "Enable privileged Tier 0 group cleanup [Y/N] ($DefaultPrivilegedGroupsCleanUpSelection)"
+if ($strReadHost -eq '') {
+    $strReadHost = $DefaultPrivilegedGroupsCleanUpSelection
+}
 if ($strReadHost -like "n*"){
     Set-TierLevelPrivilegedGroupsCleanUpState $false
 } else {
@@ -550,6 +645,7 @@ if ($strReadHost -like "n*"){
 #region OU validation / creation
 $config = Get-TierLevelIsolationConfiguration
 foreach ($domain in $config.Domains){
+    Write-Host "Validating organizational units in domain $domain" -ForegroundColor Green
     $DomainDN = (Get-ADDomain -Server $domain).DistinguishedName
     foreach ($OU in $config.Tier0ComputerPath){
         if ($OU -like "*DC=*"){
@@ -808,7 +904,11 @@ catch{
 }
 try{
     Copy-Item .\TierLevelComputerManagement.ps1 $ScriptTarget -ErrorAction Stop
-    Copy-Item .\TierLevelUserManagement.ps1 $ScriptTarget -ErrorAction Stop    
+    Copy-Item .\TierLevelUserManagement.ps1 $ScriptTarget -ErrorAction Stop
+    if (!(Test-Path $ModuleTarget)){
+        New-Item -Path $ModuleTarget -ItemType Directory -ErrorAction Stop | Out-Null
+    }
+    Copy-Item -Path "$PSScriptRoot\module\*" -Destination $ModuleTarget -Force -Recurse -ErrorAction Stop
 } 
 catch{
     Write-Host "can not copy the script file to $ScriptTarget" -ForegroundColor Red
