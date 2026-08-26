@@ -262,6 +262,19 @@ To use the currently logged-on user instead:
 
 This mode purges the current user's Kerberos ticket cache during the test. Do not use it when existing Kerberos sessions must remain uninterrupted.
 
+#### Test a specific domain
+
+Use `-TargetDomain` with a DNS domain name to test a specific domain while retaining the test of the local computer domain. If the target is the local domain, it is tested only once. Without this parameter, the script continues to test every domain in the forest:
+
+```powershell
+.\Test-KerberosArmoring.ps1 -Credential (Get-Credential) -TargetDomain child.contoso.com
+```
+
+If the specified domain does not belong to the current forest, the script displays the forest name
+and the valid target domains, then exits with code `1`.
+
+Combine `-TargetDomain` with `-TestAllDC` to test every eligible controller in the local and target domains.
+
 #### Test every domain controller
 
 Use `-TestAllDC` to request and validate a ticket against every eligible domain controller. When a

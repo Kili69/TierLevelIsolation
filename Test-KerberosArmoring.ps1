@@ -30,7 +30,7 @@ possibility of such damages
     Effective KDC and Kerberos client registry values on domain controllers are checked only when
     explicitly requested.
 
-    Version 0.1.20260826.10
+    Version 0.1.20260826.12
 
 .PARAMETER Credential
     Optional credential for one non-privileged account from any domain in the forest. The same
@@ -44,6 +44,11 @@ possibility of such damages
 .PARAMETER CheckDomainControllerConfiguration
     Additionally checks the effective EnableCbacAndArmor registry values on every selected domain
     controller. This optional check requires permission to read the remote registry.
+
+.PARAMETER TargetDomain
+    Limits the test to the local computer domain and the specified domain in the current forest.
+    Specify the DNS domain name. If the target is the local domain, it is tested only once. Without
+    this parameter, every domain in the forest is tested.
 
 .PARAMETER TestAllDC
     Tests every eligible domain controller. Without this parameter, only the first domain controller
@@ -74,6 +79,11 @@ possibility of such damages
 
     Tests every writable domain controller in isolated logon sessions and displays per-controller
     details.
+
+.EXAMPLE
+    .\Test-KerberosArmoring.ps1 -UseCurrentUser -TargetDomain child.contoso.com
+
+    Tests one writable domain controller in the local computer domain and in child.contoso.com.
 #>
 [CmdletBinding(DefaultParameterSetName = 'Credential')]
 param(
@@ -87,6 +97,10 @@ param(
     [switch]$CheckDomainControllerConfiguration,
 
     [Parameter()]
+    [ValidateNotNullOrEmpty()]
+    [string]$TargetDomain,
+
+    [Parameter()]
     [switch]$TestAllDC,
 
     [Parameter()]
@@ -97,7 +111,7 @@ param(
     [switch]$IncludeReadOnlyDomainControllers
 )
 
-$ScriptVersion = '0.1.20260826.10'
+$ScriptVersion = '0.1.20260826.12'
 $ErrorActionPreference = 'Stop'
 $KdcRegistryPath = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\KDC\Parameters'
 $ClientRegistryPath = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Kerberos\Parameters'
@@ -589,8 +603,26 @@ Import-Module ActiveDirectory -Verbose:$false
 Write-Verbose 'Active Directory module loaded.'
 $localFastSupport = Test-LocalFastSupport
 $forest = Get-ADForest
+$localDomain = (Get-ADDomain -Current LocalComputer).DNSRoot
 $currentUserDomain = if ($UseCurrentUser) {
     (Get-ADDomain -Current LoggedOnUser).DNSRoot
+}
+$domainsToTest = if ($TargetDomain) {
+    $resolvedTargetDomain = $forest.Domains |
+        Where-Object { $_ -ieq $TargetDomain } |
+        Select-Object -First 1
+    if (-not $resolvedTargetDomain) {
+        $validDomains = @($forest.Domains | Sort-Object) -join ', '
+        Write-Warning "Target domain '$TargetDomain' cannot be tested."
+        Write-Information "Current forest: $($forest.Name)" -InformationAction Continue
+        Write-Information "Valid target domains: $validDomains" -InformationAction Continue
+        exit 1
+    }
+
+    @($localDomain, $resolvedTargetDomain) | Select-Object -Unique
+}
+else {
+    @($forest.Domains)
 }
 if (-not $UseCurrentUser -and $localFastSupport.Supported -and $null -eq $Credential) {
     $Credential = Get-Credential -Message 'Enter one non-privileged account from any domain in the forest for the FAST ticket tests.'
@@ -599,7 +631,7 @@ if (-not $UseCurrentUser -and $localFastSupport.Supported -and $null -eq $Creden
 # Phase 2: request one LDAP service ticket per DC. A forest account can follow referrals to every
 # trusted domain, while ldap/DC ensures that the target domain's KDC issues the final service ticket.
 $parallelTests = [System.Collections.Generic.List[object]]::new()
-$results = foreach ($domainName in $forest.Domains) {
+$results = foreach ($domainName in $domainsToTest) {
     $domainControllers = @(Get-ADDomainController -Filter * -Server $domainName |
             Where-Object { $IncludeReadOnlyDomainControllers -or -not $_.IsReadOnly } |
             Sort-Object HostName)
