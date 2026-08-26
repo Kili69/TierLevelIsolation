@@ -302,7 +302,15 @@ Read-only domain controllers are excluded by default. Include them with `-Includ
 
 #### Detailed output and configuration check
 
-The script displays its version at startup so that test output can be assigned to the exact script revision. The default output contains one status per domain. `True` is displayed in green when every selected controller in that domain passes; `False` is displayed in red when at least one test fails. With `-TestAllDC`, the output contains the domain controller name and an individual status for every tested controller. The process exits with code `0` when all requested checks pass and code `1` when a check fails or cannot be completed.
+The script displays its version at startup so that test output can be assigned to the exact script revision. The default output contains one status per domain. With `-TestAllDC`, the output contains the domain controller name and an individual status for every tested controller:
+
+| Status | Color | Meaning |
+|---|---|---|
+| `OK` | Green | An LDAP service ticket was received with FAST and from the selected KDC |
+| `Warning` | Yellow | A ticket was received, but Kerberos Armoring could not be confirmed |
+| `Error` | Red | No usable ticket was received or the ticket test failed technically |
+
+A domain shows the most severe status of its selected controllers. The process exits with code `0` only when every requested test has status `OK`; `Warning` and `Error` result in exit code `1`.
 
 Use `-Verbose` to display the result for every tested domain controller:
 
@@ -316,6 +324,9 @@ Important verbose properties are:
 |---|---|
 | `DomainController` | Domain controller selected for the test |
 | `ServicePrincipal` | LDAP SPN used to request the service ticket |
+| `TicketReceived` | Indicates whether the requested LDAP service ticket was found in the cache |
+| `FastEnabled` | Indicates whether the ticket contains the FAST cache flag |
+| `KerberosArmoringStatus` | Final `OK`, `Warning`, or `Error` status |
 | `FastCacheFlags` | Ticket cache flags; `0x40` indicates FAST |
 | `IssuingKdc` | KDC reported by `klist.exe` as the ticket issuer |
 | `IssuingKdcConfirmed` | Indicates whether the issuing KDC matches the selected controller |

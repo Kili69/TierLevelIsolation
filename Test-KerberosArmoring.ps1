@@ -30,7 +30,7 @@ possibility of such damages
     Effective KDC and Kerberos client registry values on domain controllers are checked only when
     explicitly requested.
 
-    Version 0.1.20260826.12
+    Version 0.1.20260826.13
 
 .PARAMETER Credential
     Optional credential for one non-privileged account from any domain in the forest. The same
@@ -111,7 +111,7 @@ param(
     [switch]$IncludeReadOnlyDomainControllers
 )
 
-$ScriptVersion = '0.1.20260826.12'
+$ScriptVersion = '0.1.20260826.13'
 $ErrorActionPreference = 'Stop'
 $KdcRegistryPath = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\KDC\Parameters'
 $ClientRegistryPath = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Kerberos\Parameters'
@@ -251,6 +251,7 @@ param(
 
 $result = [ordered]@{
     Success       = $false
+    TicketReceived = $false
     FastEnabled   = $false
     CacheFlags    = $null
     IssuingKdc    = $null
@@ -288,6 +289,7 @@ try {
     if ($null -eq $ticketMatch) { throw "The service ticket for '$ServicePrincipal' was not found in the cache." }
 
     $ticketOutput = $ticketMatch.Value
+    $result.TicketReceived = $true
     $result.RawOutput = $ticketOutput.Trim()
     # (?im) searches individual lines case-insensitively. Capture group 1 contains only the
     # hexadecimal digits after "0x"; the textual flag names following "->" are not interpreted.
@@ -377,6 +379,7 @@ function Invoke-CurrentUserFastTicketTest {
 
     $result = [ordered]@{
         Success      = $false
+        TicketReceived = $false
         FastEnabled  = $false
         CacheFlags   = $null
         IssuingKdc   = $null
@@ -420,6 +423,7 @@ function Invoke-CurrentUserFastTicketTest {
         }
 
         $ticketOutput = $ticketMatch.Value
+        $result.TicketReceived = $true
         # Capture group 1 extracts one to four hexadecimal digits from the Cache Flags line.
         # (?im) makes the label case-insensitive and anchors the match to a single output line.
         $flagMatch = [regex]::Match(
@@ -509,6 +513,8 @@ function Invoke-ParallelFastTicketTest {
                         [pscustomobject]@{
                             Index        = $TestCase.Index
                             Success      = [bool]$ticketResult.Success
+                            TicketReceived = [bool]$ticketResult.TicketReceived
+                            FastEnabled  = [bool]$ticketResult.FastEnabled
                             CacheFlags   = $ticketResult.CacheFlags
                             IssuingKdc   = $ticketResult.IssuingKdc
                             KdcConfirmed = [bool]$ticketResult.KdcConfirmed
@@ -519,6 +525,8 @@ function Invoke-ParallelFastTicketTest {
                         [pscustomobject]@{
                             Index        = $TestCase.Index
                             Success      = $false
+                            TicketReceived = $false
+                            FastEnabled  = $false
                             CacheFlags   = $null
                             IssuingKdc   = $null
                             KdcConfirmed = $false
@@ -542,6 +550,34 @@ function Invoke-ParallelFastTicketTest {
     }
 }
 
+function Get-KerberosArmoringStatus {
+    param(
+        [Parameter(Mandatory = $true)]
+        [bool]$TicketReceived,
+
+        [Parameter(Mandatory = $true)]
+        [bool]$FastEnabled,
+
+        [Parameter(Mandatory = $true)]
+        [bool]$KdcConfirmed,
+
+        [Parameter()]
+        [AllowNull()]
+        [string]$ErrorMessage
+    )
+
+    if ($ErrorMessage) {
+        return 'Error'
+    }
+    if ($TicketReceived -and $FastEnabled -and $KdcConfirmed) {
+        return 'OK'
+    }
+    if ($TicketReceived) {
+        return 'Warning'
+    }
+    return 'Error'
+}
+
 function Write-TicketTestResult {
     <#
     .SYNOPSIS
@@ -555,7 +591,7 @@ function Write-TicketTestResult {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
         'PSAvoidUsingWriteHost',
         '',
-        Justification = 'Write-Host is required to render the ticket test status in green or red.'
+        Justification = 'Write-Host is required to render OK, Warning, and Error in status colors.'
     )]
     param(
         [Parameter(Mandatory = $true)]
@@ -567,29 +603,45 @@ function Write-TicketTestResult {
 
     Write-Host ''
     if ($ShowDomainController) {
-        Write-Host ('{0,-35} {1,-45} {2}' -f 'Domain', 'DomainController', 'TicketTestPassed')
-        Write-Host ('{0,-35} {1,-45} {2}' -f ('-' * 35), ('-' * 45), ('-' * 16))
+        Write-Host ('{0,-35} {1,-45} {2}' -f 'Domain', 'DomainController', 'KerberosArmoringStatus')
+        Write-Host ('{0,-35} {1,-45} {2}' -f ('-' * 35), ('-' * 45), ('-' * 22))
     }
     else {
-        Write-Host ('{0,-40} {1}' -f 'Domain', 'TicketTestPassed')
-        Write-Host ('{0,-40} {1}' -f ('-' * 40), ('-' * 16))
+        Write-Host ('{0,-40} {1}' -f 'Domain', 'KerberosArmoringStatus')
+        Write-Host ('{0,-40} {1}' -f ('-' * 40), ('-' * 22))
     }
 
     foreach ($domainResults in ($Results | Group-Object Domain | Sort-Object Name)) {
         if ($ShowDomainController) {
             foreach ($result in ($domainResults.Group | Sort-Object DomainController)) {
-                $statusColor = if ($result.TicketTestPassed) { 'Green' } else { 'Red' }
+                $statusColor = switch ($result.KerberosArmoringStatus) {
+                    'OK' { 'Green' }
+                    'Warning' { 'Yellow' }
+                    default { 'Red' }
+                }
 
                 Write-Host ('{0,-35} {1,-45} ' -f $result.Domain, $result.DomainController) -NoNewline
-                Write-Host $result.TicketTestPassed -ForegroundColor $statusColor
+                Write-Host $result.KerberosArmoringStatus -ForegroundColor $statusColor
             }
         }
         else {
-            $ticketTestPassed = -not [bool]($domainResults.Group | Where-Object { -not $_.TicketTestPassed })
-            $statusColor = if ($ticketTestPassed) { 'Green' } else { 'Red' }
+            $domainStatus = if ($domainResults.Group.KerberosArmoringStatus -contains 'Error') {
+                'Error'
+            }
+            elseif ($domainResults.Group.KerberosArmoringStatus -contains 'Warning') {
+                'Warning'
+            }
+            else {
+                'OK'
+            }
+            $statusColor = switch ($domainStatus) {
+                'OK' { 'Green' }
+                'Warning' { 'Yellow' }
+                default { 'Red' }
+            }
 
             Write-Host ('{0,-40} ' -f $domainResults.Name) -NoNewline
-            Write-Host $ticketTestPassed -ForegroundColor $statusColor
+            Write-Host $domainStatus -ForegroundColor $statusColor
         }
 
         foreach ($result in $domainResults.Group) {
@@ -654,7 +706,9 @@ $results = foreach ($domainName in $domainsToTest) {
             KdcArmorConfigured      = $null
             ClientArmorConfigured   = $null
             ConfigurationError      = $null
-            TicketTestPassed        = $null
+            TicketReceived          = $false
+            FastEnabled             = $false
+            KerberosArmoringStatus  = 'Error'
             FastCacheFlags          = $null
             IssuingKdc              = $null
             IssuingKdcConfirmed     = $null
@@ -676,20 +730,19 @@ $results = foreach ($domainName in $domainsToTest) {
         }
 
         if (-not $localFastSupport.Supported) {
-            $result.TicketTestPassed = $false
             $result.TicketTestError = $localFastSupport.Error
         }
         elseif ($UseCurrentUser) {
             $ticketResult = Invoke-CurrentUserFastTicketTest -DomainName $domainName `
                 -DomainController $domainController.HostName -ServicePrincipal $servicePrincipal
-            $result.TicketTestPassed = [bool]$ticketResult.Success
+            $result.TicketReceived = [bool]$ticketResult.TicketReceived
+            $result.FastEnabled = [bool]$ticketResult.FastEnabled
             $result.FastCacheFlags = $ticketResult.CacheFlags
             $result.IssuingKdc = $ticketResult.IssuingKdc
             $result.IssuingKdcConfirmed = [bool]$ticketResult.KdcConfirmed
             $result.TicketTestError = $ticketResult.Error
         }
         elseif ($null -eq $Credential) {
-            $result.TicketTestPassed = $false
             $result.TicketTestError = 'No test credential was supplied.'
         }
         elseif ($TestAllDC) {
@@ -705,17 +758,21 @@ $results = foreach ($domainName in $domainsToTest) {
                 $ticketResult = Invoke-FastTicketTest -DomainName $domainName `
                     -DomainController $domainController.HostName -ServicePrincipal $servicePrincipal `
                     -Credential $Credential
-                $result.TicketTestPassed = [bool]$ticketResult.Success
+                $result.TicketReceived = [bool]$ticketResult.TicketReceived
+                $result.FastEnabled = [bool]$ticketResult.FastEnabled
                 $result.FastCacheFlags = $ticketResult.CacheFlags
                 $result.IssuingKdc = $ticketResult.IssuingKdc
                 $result.IssuingKdcConfirmed = [bool]$ticketResult.KdcConfirmed
                 $result.TicketTestError = $ticketResult.Error
             }
             catch {
-                $result.TicketTestPassed = $false
                 $result.TicketTestError = $_.Exception.Message
             }
         }
+
+        $result.KerberosArmoringStatus = Get-KerberosArmoringStatus `
+            -TicketReceived $result.TicketReceived -FastEnabled $result.FastEnabled `
+            -KdcConfirmed $result.IssuingKdcConfirmed -ErrorMessage $result.TicketTestError
 
         [pscustomobject]$result
     }
@@ -731,11 +788,15 @@ if ($parallelTests.Count -gt 0) {
             $_.DomainController -eq $testCase.DomainController
         } | Select-Object -First 1
 
-        $result.TicketTestPassed = [bool]$ticketResult.Success
+        $result.TicketReceived = [bool]$ticketResult.TicketReceived
+        $result.FastEnabled = [bool]$ticketResult.FastEnabled
         $result.FastCacheFlags = $ticketResult.CacheFlags
         $result.IssuingKdc = $ticketResult.IssuingKdc
         $result.IssuingKdcConfirmed = [bool]$ticketResult.KdcConfirmed
         $result.TicketTestError = $ticketResult.Error
+        $result.KerberosArmoringStatus = Get-KerberosArmoringStatus `
+            -TicketReceived $result.TicketReceived -FastEnabled $result.FastEnabled `
+            -KdcConfirmed $result.IssuingKdcConfirmed -ErrorMessage $result.TicketTestError
     }
 }
 
@@ -752,7 +813,7 @@ Write-TicketTestResult -Results $results -ShowDomainController:$TestAllDC
 # grouped by domain. Optional registry failures count only when that check was explicitly requested.
 $failed = $results | Where-Object {
     -not $_.LocalClientFastSupported -or
-    -not $_.TicketTestPassed -or
+    $_.KerberosArmoringStatus -ne 'OK' -or
     ($CheckDomainControllerConfiguration -and (
         -not $_.KdcArmorConfigured -or
         -not $_.ClientArmorConfigured -or
