@@ -30,7 +30,7 @@ possibility of such damages
     Effective KDC and Kerberos client registry values on domain controllers are checked only when
     explicitly requested.
 
-    Version 0.1.20260826.6
+    Version 0.1.20260826.10
 
 .PARAMETER Credential
     Optional credential for one non-privileged account from any domain in the forest. The same
@@ -47,7 +47,13 @@ possibility of such damages
 
 .PARAMETER TestAllDC
     Tests every eligible domain controller. Without this parameter, only the first domain controller
-    in each domain, sorted by host name, is tested.
+    in each domain, sorted by host name, is tested. The compact output includes the domain controller
+    name when this parameter is specified. Credential-based ticket tests run in parallel. Tests with
+    -UseCurrentUser remain sequential because they share one Kerberos cache.
+
+.PARAMETER ThrottleLimit
+    Maximum number of parallel ticket tests when -TestAllDC is used with Credential. The default is
+    8. This parameter has no effect with -UseCurrentUser.
 
 .PARAMETER IncludeReadOnlyDomainControllers
     Includes read-only domain controllers. By default, only writable controllers are tested.
@@ -84,13 +90,20 @@ param(
     [switch]$TestAllDC,
 
     [Parameter()]
+    [ValidateRange(1, 64)]
+    [int]$ThrottleLimit = 8,
+
+    [Parameter()]
     [switch]$IncludeReadOnlyDomainControllers
 )
 
+$ScriptVersion = '0.1.20260826.10'
 $ErrorActionPreference = 'Stop'
 $KdcRegistryPath = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\KDC\Parameters'
 $ClientRegistryPath = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Kerberos\Parameters'
 $RegistryValueName = 'EnableCbacAndArmor'
+
+Write-Information "Test-KerberosArmoring.ps1 version $ScriptVersion" -InformationAction Continue
 
 function Test-LocalFastSupport {
     <#
@@ -427,14 +440,103 @@ function Invoke-CurrentUserFastTicketTest {
     return [pscustomobject]$result
 }
 
+function Invoke-ParallelFastTicketTest {
+    <#
+    .SYNOPSIS
+        Runs credential-based domain-controller ticket tests in parallel Windows PowerShell jobs.
+
+    .DESCRIPTION
+        Each job calls Invoke-FastTicketTest, which creates a separate logon session and Kerberos
+        cache. The throttle limits concurrent processes so large forests do not overload the client
+        or domain controllers. Results include the original work-item index for deterministic merge.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSUseUsingScopeModifierInNewRunspaces',
+        '',
+        Justification = 'Start-Job values are passed with ArgumentList and declared in its param block.'
+    )]
+    param(
+        [Parameter(Mandatory = $true)]
+        [object[]]$TestCases,
+
+        [Parameter(Mandatory = $true)]
+        [pscredential]$Credential,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateRange(1, 64)]
+        [int]$ThrottleLimit
+    )
+
+    $functionBody = ${function:Invoke-FastTicketTest}.ToString()
+    $pendingTests = [System.Collections.Generic.Queue[object]]::new()
+    foreach ($testCase in $TestCases) {
+        $pendingTests.Enqueue($testCase)
+    }
+
+    $runningJobs = @()
+    try {
+        while ($pendingTests.Count -gt 0 -or $runningJobs.Count -gt 0) {
+            while ($pendingTests.Count -gt 0 -and $runningJobs.Count -lt $ThrottleLimit) {
+                $testCase = $pendingTests.Dequeue()
+                $runningJobs += Start-Job -ScriptBlock {
+                    param(
+                        [string]$FunctionBody,
+                        [object]$TestCase,
+                        [pscredential]$TestCredential
+                    )
+
+                    Set-Item -Path Function:\Invoke-FastTicketTest `
+                        -Value ([scriptblock]::Create($FunctionBody))
+                    try {
+                        $ticketResult = Invoke-FastTicketTest -DomainName $TestCase.DomainName `
+                            -DomainController $TestCase.DomainController `
+                            -ServicePrincipal $TestCase.ServicePrincipal -Credential $TestCredential
+
+                        [pscustomobject]@{
+                            Index        = $TestCase.Index
+                            Success      = [bool]$ticketResult.Success
+                            CacheFlags   = $ticketResult.CacheFlags
+                            IssuingKdc   = $ticketResult.IssuingKdc
+                            KdcConfirmed = [bool]$ticketResult.KdcConfirmed
+                            Error        = $ticketResult.Error
+                        }
+                    }
+                    catch {
+                        [pscustomobject]@{
+                            Index        = $TestCase.Index
+                            Success      = $false
+                            CacheFlags   = $null
+                            IssuingKdc   = $null
+                            KdcConfirmed = $false
+                            Error        = $_.Exception.Message
+                        }
+                    }
+                } -ArgumentList $functionBody, $testCase, $Credential
+            }
+
+            $completedJob = Wait-Job -Job $runningJobs -Any
+            Receive-Job -Job $completedJob
+            $runningJobs = @($runningJobs | Where-Object { $_.Id -ne $completedJob.Id })
+            Remove-Job -Job $completedJob -Force
+        }
+    }
+    finally {
+        if ($runningJobs.Count -gt 0) {
+            $runningJobs | Stop-Job -ErrorAction SilentlyContinue
+            $runningJobs | Remove-Job -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function Write-TicketTestResult {
     <#
     .SYNOPSIS
         Writes the color-coded forest summary and optional per-controller details.
 
     .DESCRIPTION
-        A domain passes only when every tested controller in that domain passes. Full controller
-        result objects are sent to the verbose stream and therefore appear only with -Verbose.
+        By default, one aggregated status is shown per domain. When ShowDomainController is set, one
+        status row is shown per tested controller. Full result objects are sent to the verbose stream
+        and therefore appear only with -Verbose.
     #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
         'PSAvoidUsingWriteHost',
@@ -443,19 +545,38 @@ function Write-TicketTestResult {
     )]
     param(
         [Parameter(Mandatory = $true)]
-        [object[]]$Results
+        [object[]]$Results,
+
+        [Parameter()]
+        [switch]$ShowDomainController
     )
 
     Write-Host ''
-    Write-Host ('{0,-40} {1}' -f 'Domain', 'TicketTestPassed')
-    Write-Host ('{0,-40} {1}' -f ('-' * 40), ('-' * 16))
+    if ($ShowDomainController) {
+        Write-Host ('{0,-35} {1,-45} {2}' -f 'Domain', 'DomainController', 'TicketTestPassed')
+        Write-Host ('{0,-35} {1,-45} {2}' -f ('-' * 35), ('-' * 45), ('-' * 16))
+    }
+    else {
+        Write-Host ('{0,-40} {1}' -f 'Domain', 'TicketTestPassed')
+        Write-Host ('{0,-40} {1}' -f ('-' * 40), ('-' * 16))
+    }
 
     foreach ($domainResults in ($Results | Group-Object Domain | Sort-Object Name)) {
-        $ticketTestPassed = -not [bool]($domainResults.Group | Where-Object { -not $_.TicketTestPassed })
-        $statusColor = if ($ticketTestPassed) { 'Green' } else { 'Red' }
+        if ($ShowDomainController) {
+            foreach ($result in ($domainResults.Group | Sort-Object DomainController)) {
+                $statusColor = if ($result.TicketTestPassed) { 'Green' } else { 'Red' }
 
-        Write-Host ('{0,-40} ' -f $domainResults.Name) -NoNewline
-        Write-Host $ticketTestPassed -ForegroundColor $statusColor
+                Write-Host ('{0,-35} {1,-45} ' -f $result.Domain, $result.DomainController) -NoNewline
+                Write-Host $result.TicketTestPassed -ForegroundColor $statusColor
+            }
+        }
+        else {
+            $ticketTestPassed = -not [bool]($domainResults.Group | Where-Object { -not $_.TicketTestPassed })
+            $statusColor = if ($ticketTestPassed) { 'Green' } else { 'Red' }
+
+            Write-Host ('{0,-40} ' -f $domainResults.Name) -NoNewline
+            Write-Host $ticketTestPassed -ForegroundColor $statusColor
+        }
 
         foreach ($result in $domainResults.Group) {
             Write-Verbose (($result | Format-List * | Out-String).TrimEnd())
@@ -464,7 +585,8 @@ function Write-TicketTestResult {
 }
 
 # Phase 1: discover the forest and verify that this client can perform the required klist operations.
-Import-Module ActiveDirectory
+Import-Module ActiveDirectory -Verbose:$false
+Write-Verbose 'Active Directory module loaded.'
 $localFastSupport = Test-LocalFastSupport
 $forest = Get-ADForest
 $currentUserDomain = if ($UseCurrentUser) {
@@ -476,6 +598,7 @@ if (-not $UseCurrentUser -and $localFastSupport.Supported -and $null -eq $Creden
 
 # Phase 2: request one LDAP service ticket per DC. A forest account can follow referrals to every
 # trusted domain, while ldap/DC ensures that the target domain's KDC issues the final service ticket.
+$parallelTests = [System.Collections.Generic.List[object]]::new()
 $results = foreach ($domainName in $forest.Domains) {
     $domainControllers = @(Get-ADDomainController -Filter * -Server $domainName |
             Where-Object { $IncludeReadOnlyDomainControllers -or -not $_.IsReadOnly } |
@@ -537,6 +660,14 @@ $results = foreach ($domainName in $forest.Domains) {
             $result.TicketTestPassed = $false
             $result.TicketTestError = 'No test credential was supplied.'
         }
+        elseif ($TestAllDC) {
+            $parallelTests.Add([pscustomobject]@{
+                    Index            = $parallelTests.Count
+                    DomainName       = $domainName
+                    DomainController = $domainController.HostName
+                    ServicePrincipal = $servicePrincipal
+                })
+        }
         else {
             try {
                 $ticketResult = Invoke-FastTicketTest -DomainName $domainName `
@@ -558,6 +689,24 @@ $results = foreach ($domainName in $forest.Domains) {
     }
 }
 
+if ($parallelTests.Count -gt 0) {
+    $parallelTicketResults = @(Invoke-ParallelFastTicketTest -TestCases $parallelTests `
+            -Credential $Credential -ThrottleLimit $ThrottleLimit)
+    foreach ($ticketResult in $parallelTicketResults) {
+        $testCase = $parallelTests[[int]$ticketResult.Index]
+        $result = $results | Where-Object {
+            $_.Domain -eq $testCase.DomainName -and
+            $_.DomainController -eq $testCase.DomainController
+        } | Select-Object -First 1
+
+        $result.TicketTestPassed = [bool]$ticketResult.Success
+        $result.FastCacheFlags = $ticketResult.CacheFlags
+        $result.IssuingKdc = $ticketResult.IssuingKdc
+        $result.IssuingKdcConfirmed = [bool]$ticketResult.KdcConfirmed
+        $result.TicketTestError = $ticketResult.Error
+    }
+}
+
 if ($UseCurrentUser -and $localFastSupport.Supported) {
     # Leave the current user with a fresh home-domain TGT after the destructive cache tests.
     & klist.exe purge_bind | Out-Null
@@ -565,7 +714,7 @@ if ($UseCurrentUser -and $localFastSupport.Supported) {
     & klist.exe get "krbtgt/$currentUserDomain" | Out-Null
 }
 
-Write-TicketTestResult -Results $results
+Write-TicketTestResult -Results $results -ShowDomainController:$TestAllDC
 
 # Phase 3: preserve a machine-readable process result even though the human-readable output is
 # grouped by domain. Optional registry failures count only when that check was explicitly requested.

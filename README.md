@@ -264,11 +264,22 @@ This mode purges the current user's Kerberos ticket cache during the test. Do no
 
 #### Test every domain controller
 
-Use `-TestAllDC` to request and validate a ticket against every eligible domain controller:
+Use `-TestAllDC` to request and validate a ticket against every eligible domain controller. When a
+credential is used, ticket tests run in parallel with up to eight concurrent tests by default:
 
 ```powershell
 .\Test-KerberosArmoring.ps1 -Credential (Get-Credential) -TestAllDC
 ```
+
+Use `-ThrottleLimit` to adapt concurrency to the size of the environment and the capacity of the
+test client. Valid values are 1 through 64:
+
+```powershell
+.\Test-KerberosArmoring.ps1 -Credential (Get-Credential) -TestAllDC -ThrottleLimit 16
+```
+
+`-UseCurrentUser -TestAllDC` remains sequential because all tests use the current logon session and
+would otherwise modify the same Kerberos cache and KDC bindings concurrently.
 
 Read-only domain controllers are excluded by default. Include them with `-IncludeReadOnlyDomainControllers`:
 
@@ -278,7 +289,7 @@ Read-only domain controllers are excluded by default. Include them with `-Includ
 
 #### Detailed output and configuration check
 
-The default output contains one status per domain. `True` is displayed in green when every selected controller in that domain passes; `False` is displayed in red when at least one test fails. The process exits with code `0` when all requested checks pass and code `1` when a check fails or cannot be completed.
+The script displays its version at startup so that test output can be assigned to the exact script revision. The default output contains one status per domain. `True` is displayed in green when every selected controller in that domain passes; `False` is displayed in red when at least one test fails. With `-TestAllDC`, the output contains the domain controller name and an individual status for every tested controller. The process exits with code `0` when all requested checks pass and code `1` when a check fails or cannot be completed.
 
 Use `-Verbose` to display the result for every tested domain controller:
 
