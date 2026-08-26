@@ -1,26 +1,5 @@
 # TierLevelIsolation
 
-## Publish to PowerShell Gallery
-
-Validate the module package without uploading it:
-
-```powershell
-.\publish.ps1
-```
-
-For a release, create an API key on PowerShell Gallery and enter it without
-placing it in the PowerShell command history:
-
-```powershell
-$secureKey = Read-Host 'PSGallery API key' -AsSecureString
-$env:PSGALLERY_API_KEY = [System.Net.NetworkCredential]::new('', $secureKey).Password
-.\publish.ps1 -Publish
-Remove-Item Env:PSGALLERY_API_KEY
-```
-
-Increment `ModuleVersion` in `module\TierLevelIsolation.psd1` before every
-subsequent release because PowerShell Gallery versions are immutable.
-
 ## Overview 
 This solution implements Tier Level isolation as described in the blog "Protection Tier 0 the modern way". It prepares your Active Directory forest to support Kerberos Authentication Policies, creating prerequisites to isolate Tier 0 or Tier 1 and automate the Tier 0 / Tier 1 user management. The Kerberos Authentication Policy ensure privileged accounts must use Kerberos as authentication protocol and can only request Kerberos TGT on predefined computers. 
 The solution automates the management of Tier 0 and Tier 1 users with Kerberos Authentication Policies through scripts. One script adds AD-Computer objects to an AD group included in the Kerberos Authentication Policy claim. Another script applies the policy to Tier 0 / Tier 1 users in the correct OU, and for Tier 0, removes users from privileged groups if they are not located in the correct OU.
@@ -100,22 +79,23 @@ The GMSA is created on demand and added to the Enterprise Administrators group
 
 
 ## Post installation tasks
-### Validate Kerberos AmoringKerberos Amoring must be active to isolate Tier 0 / Tier 1 administrators. For this purpose, the current Kerberos cache should be set with 
+### Validate Kerberos Armoring
+Kerberos Armoring must be active to isolate Tier 0 / Tier 1 administrators. For this purpose, the current Kerberos cache should be set with
 KLIST PURGE 
 Delete and request a new Kerberos ticket (e.g. dir \\<domain>\SYSVOL). Afterwards, you have the requested Kerberos ticket with 
 KLIST
 Indicate. In the TGT displayed, the value "Cache Flags" should be set to 0x41 -> PRIMARY FAST
-The group policy settings for Kerberos Amoring are made only in the local domain. For all other domains in the AD-Forest, the settings must be manually completed.
+The group policy settings for Kerberos Armoring are made only in the local domain. For all other domains in the AD-Forest, the settings must be manually completed.
 
-If Kerberos Amoring is not available validate:
+If Kerberos Armoring is not available validate:
 ### Default Domain Policy
-This enables support for Kerberos Amoring for all client computers. This is done via the setting:
-Administrative Templates\System\Kerberos\Kerberos Amoring
+This enables support for Kerberos Armoring for all client computers. This is done via the setting:
+Administrative Templates\System\Kerberos\Kerberos Armoring
 
 ### Default Domain Controller Policy:
-In this group policy, Kerberos Amoring is enabled at the domain level. The following settings are made for this purpose:
-Administrative Template\System\KDC\Kerberos Amoring Support mode
-Administrative Templates\System\Kerberos\Kerberos Amoring
+In this group policy, Kerberos Armoring is enabled at the domain level. The following settings are made for this purpose:
+Administrative Template\System\KDC\Kerberos Armoring Support mode
+Administrative Templates\System\Kerberos\Kerberos Armoring
 
 ## Activation of Tier Level Isolation
 Once installed, you will need to enable TierLevelIsolation. Activation is done via the Tier Level Isolation group policy. This policy group consists of 5 Schedule Tasks that run on the current domain. The schedule tasks are:
@@ -129,8 +109,8 @@ In the first step, the two schedule tasks "Tier 0 Computer Management" and "Tier
 This Schedule Task adds the Tier 0 Kerberos Authentication Policy to Tier 0 administrators
 ### Tier 1 computer management
 The task of this schedule task is to add or remove computer objects from the Tier 1 server group
-### tier 1 user management
-This Schedule Task adds the Tier 0 Kerberos Authentication Policy to Tier 0 administrators
+### Tier 1 user management
+This Schedule Task adds the Tier 1 Kerberos Authentication Policy to Tier 1 administrators
 
 Once the Computer Management task has been started for the first time, all computer objects must appear in the Tier 0 Computer group. Once this is done, make sure that the Tier 0 Member Server objects have been restarted. 
 ## Active the Tier 0 and Tier 1 user management tasks
@@ -140,15 +120,229 @@ Once the Computer Management task has been started for the first time, all compu
 Subsequently, the TierLevel isolation based on "Kerberos Authentication Polices" was to be tested. To do this, the Kerberos Authentication Policy is to add a Tier 0 user and validate the logon with this user object. 
 The test is successful if this user can only authenticate on a Tier 0 member server or a domain controller. (RDP from an unprotected system is not supported)
 The test can be repeated with several users. Once the administrators are familiar with Kerberos Authentication Policy based Administration, the Tier 0 user management task is enabled in the TierLevelIsolation Group Policy. 
-To do this, the trigger in the "Tier 0 User Management" tab must be set to active in the Group Policy in the Preferences/Schedule Task. The Taks starts at 12a.m. by default and repeats every 10 minutes. Depending on the environment, these values can be adjusted
+To do this, the trigger in the "Tier 0 User Management" tab must be set to active in the Group Policy in the Preferences/Schedule Task. The Task starts at 12a.m. by default and repeats every 10 minutes. Depending on the environment, these values can be adjusted
 
 # Monitoring
 Monitoring is done in the Application Event log. For detailed information, a debug log file is also created. The path to the log file is logged as Windows events Source:TierLevelIsolation 1000 or Source:TierLevelIsolation 2000.
+
+Only Information, Warning, and Error events are written to the Windows Application log. Events with severity Debug are written only to the text log file and are documented in `EventID.md`.
+
 ## Computer management
 To monitor the computer management functions, look for the following events in the event log:
-|Event ID|	Type|	Description|	Trigger|
-1000	Information	Starting the Computer Management Script	This event is triggered when the Computer Management Script is executed. This event ID should appear every 10 minutes. 
-1302	Information	Adding a Computer Object to the Tier 0 Computer Group	If a new computer object is detected in a Tier 0 computer OU, it is added to the Tier Level Isolation Computer group
-1304	Warning	Removing a Computer Object from Tier Level OU	If a Computer Object is removed from the Tier Level OU, this Object is also removed from the group. 
-1401	Information	Adding a Computer Object to the Tier 0 Computer Group	If a new computer object is detected in a Tier 1 computer OUs, it is added to the Tier Level Isolation Computer group
+
+| Event ID | Type | Description | Trigger |
+|---|---|---|---|
+| 1000 | Information | Computer management script started | The script starts. For the default scheduled task, this event normally appears every 10 minutes. |
+| 1003 | Error | Unexpected error while updating the Tier 0 computer group | An unhandled error occurs while processing a Tier 0 computer OU. |
+| 1004 | Error | AD Web Service connection failed during computer management | A configured domain cannot be contacted while computer objects are processed. |
+| 1101 | Error | Default configuration was not found | Neither the default SYSVOL configuration nor an Active Directory configuration is available. |
+| 1102 | Error | Configuration file could not be read | The specified configuration file exists but does not return a configuration object. |
+| 1103 | Error | Configuration file was not found | The path supplied with `ConfigFile` does not exist. |
+| 1104 | Error | Unexpected error while reading the configuration | An unhandled exception occurs while loading or parsing the configuration. |
+| 1200 | Error | Tier 0 computer group was not found | The configured Tier 0 computer group cannot be resolved; processing is aborted. |
+| 1202 | Error | Tier 1 computer group was not found | The configured Tier 1 computer group cannot be resolved. |
+| 1203 | Error | AD Web Service is unavailable | Active Directory cannot be queried while the computer groups are initialized. |
+| 1204 | Warning | Tier 0 computer is not listed in the global catalog | A Tier 0 group update fails because the required object is not yet available through the global catalog. |
+| 1300 | Warning | Tier 0 computer OU is missing | A configured Tier 0 computer OU cannot be found in a target domain. |
+| 1302 | Information | Computer is added to the Tier 0 computer group | A computer in a configured Tier 0 OU is not yet a member of the Tier 0 computer group. |
+| 1304 | Warning | Computer is removed from the Tier 0 computer group | A group member is no longer located in an allowed Tier 0 computer OU. |
+| 1306 | Warning | Unexpected computers cannot be verified | AD Web Service is unavailable while existing group members are checked against allowed OUs. |
+| 1400 | Warning | Tier 1 computer OU is missing | A configured Tier 1 computer OU cannot be found in a target domain. |
+| 1401 | Information | Computer is added to the Tier 1 computer group | A computer in a configured Tier 1 OU is not yet a member of the Tier 1 computer group. |
+| 1402 | Error | Unexpected error while updating the Tier 1 computer group | An unhandled error occurs while Tier 1 computer objects are processed. |
+| 1403 | Warning | Computer is removed from the Tier 1 computer group | A group member is no longer located in an allowed Tier 1 computer OU. |
+| 1404 | Warning | Tier 1 computer is not listed in the global catalog | A Tier 1 group update fails because the required object is not yet available through the global catalog. |
+
+## User management
+To monitor the user management functions, look for the following events in the event log:
+
+| Event ID | Type | Description | Trigger |
+|---|---|---|---|
+| 2000 | Information | User management script started | The script starts. For the default scheduled task, this event normally appears every 10 minutes. |
+| 2001 | Warning | Configured log path is invalid | The configured text-log directory does not exist; the script uses the current user's local application data directory. |
+| 2002 | Error | Default configuration was not found | Neither the default SYSVOL configuration nor an Active Directory configuration is available. |
+| 2003 | Error | Configuration file could not be read | The specified configuration file exists but does not return a configuration object. |
+| 2004 | Error | Configuration file was not found | The path supplied with `ConfigFile` does not exist. |
+| 2005 | Error | Unexpected error while reading the configuration | An unhandled exception occurs while loading or parsing the configuration. |
+| 2006 | Error | Requested scope conflicts with configured scope | The `Scope` parameter requests a tier that is disabled in the configuration. |
+| 2101 | Error | Kerberos Authentication Policy was not found | The configured authentication policy cannot be resolved in Active Directory. |
+| 2102 | Warning | User OU is missing | A configured Tier 0 or Tier 1 user OU cannot be found in a target domain. |
+| 2103 | Warning | Built-in Administrator is located in a Tier 0 user OU | The built-in Administrator account with RID 500 is found in a managed OU and is intentionally skipped. |
+| 2104 | Information | Kerberos Authentication Policy is assigned | A managed user does not have the configured authentication policy. |
+| 2105 | Information | User is marked as sensitive and cannot be delegated | The AccountNotDelegated flag is not set on a managed user and is enabled by the script. |
+| 2106 | Information | User is added to Protected Users | Protected Users management is enabled and a managed user is not yet a member. |
+| 2107 | Error | Access denied while changing a user attribute | Active Directory rejects an update to a managed user. |
+| 2108 | Error | Active Directory identity was not found | Users or another required identity cannot be enumerated. |
+| 2109 | Error | Unexpected error during user isolation | An unhandled exception occurs while authentication policy or account settings are applied. |
+| 2200 | Warning | Configured group SID is unavailable | A privileged group cannot be resolved from its configured SID. |
+| 2201 | Warning | User is removed from a privileged group | Privileged-group cleanup finds a user outside the allowed administrator and service-account OUs. |
+| 2202 | Error | AD Web Service is unavailable during group cleanup | The script cannot contact Active Directory while removing a privileged group member. |
+| 2203 | Error | User could not be removed from a privileged group | Active Directory returns an error while a privileged group membership is removed. |
+| 2204 | Error | Unexpected error while processing a privileged group member | An unhandled exception occurs during privileged-group cleanup. |
+| 2208 | Warning | Additional privileged group is invalid or was not found | A configured additional group SID is malformed or cannot be resolved in any configured domain. |
+| 2209 | Warning | Additional privileged group could not be processed | A general error occurs while an additional configured group is resolved. |
+| 2210 | Warning | Domain cannot be contacted for an additional group | AD Web Service is unavailable while an additional group SID is resolved in a configured domain. |
+| 2211 | Information | `adminCount` is set on a nested Tier 0 group | A nested Tier 0 group does not have `adminCount` set to `1`. |
+| 2212 | Error | `adminCount` could not be set on a nested Tier 0 group | The nested group cannot be read or updated. |
+| 2213 | Error | DNS domain could not be resolved for a nested group | The naming-context cross-reference for a nested group does not provide a DNS domain name. |
+| 2302 | Warning | Domain for a NetBIOS name was not found | A distinguished name contains a NetBIOS domain that cannot be mapped to a forest DNS domain. |
+| 2303 | Error | NetBIOS name could not be converted to a DNS domain | An error occurs while the forest cross-reference is queried. |
+
+## Troubleshooting
+
+### Debug log files
+
+`TierLevelComputerManagement.ps1` and `TierLevelUserManagement.ps1` create a detailed text log on every run. When `LogPath` is empty in the TierLevelIsolation configuration, the scripts use the local application data directory of the account running the scheduled task:
+
+```text
+%LOCALAPPDATA%
+```
+
+The scripts create separate files for computer and user management. The scope and computer name are included so that runs from different tasks or systems remain distinguishable:
+
+```text
+TierLevelIsolationComputerManagement-<Scope>-<ComputerName>.log
+TierLevelIsolationUserManagement-<Scope>-<ComputerName>.log
+```
+
+When a log file exceeds 1 MB, the existing file is rotated to the same name with the `.sav` extension.
+
+Use the TierLevelIsolation PowerShell module to configure a different log directory. The directory must already exist and the identities running the scheduled tasks must have write permission to it. A local directory or a UNC path can be used:
+
+```powershell
+Import-Module TierLevelIsolation
+Set-DebugLogPath -LogPath 'D:\TierLevelIsolation\Logs'
+Set-DebugLogPath -LogPath '\\FileServer\TierLevelIsolationLogs'
+```
+
+The currently configured directory can be displayed with:
+
+```powershell
+Get-DebugLogPath
+```
+
+Set an empty value to restore the default `%LOCALAPPDATA%` behavior:
+
+```powershell
+Set-DebugLogPath -LogPath ''
+```
+
+### Test Kerberos Armoring
+
+`Test-KerberosArmoring.ps1` verifies that Kerberos FAST (Kerberos Armoring) is used when a client requests service tickets from the domains in the current Active Directory forest. The script requests an LDAP service ticket for a selected domain controller in each domain and verifies both of the following conditions:
+
+- The cached service ticket contains the `FAST` cache flag (`0x40`).
+- The ticket was issued by the domain controller selected for the test (`Kdc Called`).
+
+Using a service ticket instead of a referral TGT makes it possible to validate Kerberos Armoring across the forest with one test account. The account can belong to any domain in the forest and does not require administrative permissions.
+
+#### Requirements
+
+- Run the script on Windows 8, Windows Server 2012, or a newer Windows version.
+- The Active Directory PowerShell module must be installed.
+- The computer must be joined to the forest or have the required DNS, trust, LDAP, and Kerberos connectivity to every domain being tested.
+- `klist.exe` must support the `get` and `add_bind` commands.
+- The optional registry configuration check requires permission to read the remote registry of the selected domain controllers.
+
+#### Basic test
+
+Without additional selection parameters, the script tests one writable domain controller per domain. The controller is selected deterministically by sorting the eligible controllers by host name and choosing the first one.
+
+```powershell
+.\Test-KerberosArmoring.ps1 -Credential (Get-Credential)
+```
+
+The same non-privileged forest account is used for every domain. The script creates an isolated logon session for each test, so the Kerberos ticket cache of the current user is not changed.
+
+To use the currently logged-on user instead:
+
+```powershell
+.\Test-KerberosArmoring.ps1 -UseCurrentUser
+```
+
+This mode purges the current user's Kerberos ticket cache during the test. Do not use it when existing Kerberos sessions must remain uninterrupted.
+
+#### Test every domain controller
+
+Use `-TestAllDC` to request and validate a ticket against every eligible domain controller:
+
+```powershell
+.\Test-KerberosArmoring.ps1 -Credential (Get-Credential) -TestAllDC
+```
+
+Read-only domain controllers are excluded by default. Include them with `-IncludeReadOnlyDomainControllers`:
+
+```powershell
+.\Test-KerberosArmoring.ps1 -Credential (Get-Credential) -TestAllDC -IncludeReadOnlyDomainControllers
+```
+
+#### Detailed output and configuration check
+
+The default output contains one status per domain. `True` is displayed in green when every selected controller in that domain passes; `False` is displayed in red when at least one test fails. The process exits with code `0` when all requested checks pass and code `1` when a check fails or cannot be completed.
+
+Use `-Verbose` to display the result for every tested domain controller:
+
+```powershell
+.\Test-KerberosArmoring.ps1 -Credential (Get-Credential) -TestAllDC -Verbose
+```
+
+Important verbose properties are:
+
+| Property | Meaning |
+|---|---|
+| `DomainController` | Domain controller selected for the test |
+| `ServicePrincipal` | LDAP SPN used to request the service ticket |
+| `FastCacheFlags` | Ticket cache flags; `0x40` indicates FAST |
+| `IssuingKdc` | KDC reported by `klist.exe` as the ticket issuer |
+| `IssuingKdcConfirmed` | Indicates whether the issuing KDC matches the selected controller |
+| `TicketTestError` | Error message when the ticket test could not be completed |
+
+The effective `EnableCbacAndArmor` registry values can also be checked on the selected controllers:
+
+```powershell
+.\Test-KerberosArmoring.ps1 -Credential (Get-Credential) -CheckDomainControllerConfiguration -Verbose
+```
+
+#### Common failures
+
+**`LocalClientFastSupported` is `False`**
+
+The local operating system or `klist.exe` does not provide the required Kerberos functionality. Run `klist /?` and verify that the `get <SPN>` and `add_bind <DOMAIN> <DC>` commands are listed.
+
+**`FastCacheFlags` does not contain `0x40`**
+
+The service ticket was not obtained through FAST. Verify the Kerberos Armoring settings in the Default Domain Policy for clients and the Default Domain Controllers Policy for KDCs. After Group Policy replication, run `gpupdate /force` and repeat the test from a client that supports FAST.
+
+**`IssuingKdcConfirmed` is `False`**
+
+The ticket was issued by a KDC other than the controller selected for the test. Check DNS resolution, domain-controller reachability, Kerberos ports, AD replication, and the value shown in `IssuingKdc`.
+
+**The LDAP service ticket cannot be requested**
+
+Check the `TicketTestError` value with `-Verbose`. Verify that the domain controller FQDN resolves correctly, the `ldap/<DC-FQDN>` SPN exists on the controller account, the forest trust path is available, and Kerberos traffic is not blocked.
+
+**The registry configuration check fails**
+
+`-CheckDomainControllerConfiguration` uses the Remote Registry API. Confirm that the Remote Registry service and firewall rules permit access and that the executing account can read the remote HKLM registry hive. This check is optional and independent of the ticket-based FAST verification.
+
+## Publish to PowerShell Gallery
+
+Validate the module package without uploading it:
+
+```powershell
+.\publish.ps1
+```
+
+For a release, create an API key on PowerShell Gallery and enter it without
+placing it in the PowerShell command history:
+
+```powershell
+$secureKey = Read-Host 'PSGallery API key' -AsSecureString
+$env:PSGALLERY_API_KEY = [System.Net.NetworkCredential]::new('', $secureKey).Password
+.\publish.ps1 -Publish
+Remove-Item Env:PSGALLERY_API_KEY
+```
+
+Increment `ModuleVersion` in `module\TierLevelIsolation.psd1` before every
+subsequent release because PowerShell Gallery versions are immutable.
 
