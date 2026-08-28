@@ -16,14 +16,103 @@ interruption, loss of business information, or other pecuniary loss) arising out
 inability to use the sample scripts or documentation, even if Microsoft has been advised of the 
 possibility of such damages
 .Synopsis
-    Automated installation of Active Directory Tier Level isolation 
+    Installs and configures Active Directory Tier Level isolation.
 
 .DESCRIPTION
-    This script installes the Kerberos Tier Level isolation solution. It will create OU's group managed 
-    servcie accounts
-.OUTPUTS 
-    None
+    Installs the Tier Level isolation PowerShell module and interactively configures the
+    selected Tier 0 and Tier 1 components. Depending on the selected scope, the script:
+
+    - Creates or validates the configured organizational unit structures.
+    - Creates universal server groups and protects them with adminCount.
+    - Creates enforced Kerberos authentication policies.
+    - Creates a group managed service account (gMSA) and grants its required membership.
+    - Copies the management scripts, module, and configuration into SYSVOL.
+    - Creates a reusable module ZIP package in the current user's Documents directory.
+    - Imports and links the Tier Level Isolation Group Policy Object (GPO).
+    - Optionally enables Kerberos claims and armoring through Group Policy.
+
+    Every execution creates a uniquely named transcript in the Windows temporary directory.
+    The transcript contains installation metadata, prompts, console output, verbose cmdlet
+    output, warnings, errors, completion status, and duration.
+
+.PARAMETER InstallPSModuleOnly
+    Installs or updates only the TierLevelIsolation PowerShell module under the system-wide
+    Windows PowerShell module directory and creates its reusable ZIP package. No Active Directory
+    isolation objects are created.
+
+.PARAMETER AdvancedSetupMode
+    Displays additional configuration prompts for Protected Users membership and the debug-log
+    directory used by the scheduled management scripts. This does not change the location of the
+    installation transcript.
+
+.PARAMETER InstallationParameters
+    A PowerShell object that supplies every installation choice without interactive prompts. The
+    object can contain InstallPSModuleOnly, AdvancedSetupMode, ContinueWithoutEnterpriseAdmin,
+    Domains, Scope, Tier0, Tier1, ProtectedUsers, LogPath, PrivilegedGroupsCleanUp, GMSAName, and
+    EnableClaimSupport. Tier0 and Tier1 are nested objects containing UserPaths,
+    ServiceAccountPaths, ComputerPaths, KerberosAuthenticationPolicyName, and ComputerGroupName.
+    Missing properties use values from an existing configuration or the documented defaults.
+
+.INPUTS
+    Prompts the user to select one or more forest domains.
+
+    Displays a numbered domain list and accepts one or more comma-separated indices. Existing
+    configured domains are preselected; when no defaults are supplied, pressing Enter selects all.
+
+    DNS names available for selection.
+    .\install.ps1
+    DNS names selected when the user presses Enter without entering a value.
+    Runs the interactive installation with standard setup options.
+    System.String[]. The selected domain DNS names.
+.EXAMPLE
+    .\install.ps1 -AdvancedSetupMode
+
+
+    Displays all forest domains and returns the user's selection.
+.EXAMPLE
+    .\install.ps1 -InstallPSModuleOnly
+
+    Installs or updates only the TierLevelIsolation PowerShell module.
+
+.EXAMPLE
+    $Parameters = [pscustomobject]@{
+        AdvancedSetupMode = $true
+        ContinueWithoutEnterpriseAdmin = $false
+        Domains = @("contoso.com")
+        Scope = "All-Tiers"
+        Tier0 = [pscustomobject]@{
+            UserPaths = @("OU=Admins,OU=Tier 0,OU=Admin")
+            ServiceAccountPaths = @("OU=Service Accounts,OU=Tier 0,OU=Admin")
+            ComputerPaths = @("OU=Server,OU=Tier 0,OU=Admin")
+            KerberosAuthenticationPolicyName = "Tier 0 restriction"
+            ComputerGroupName = "Tier 0 computer"
+        }
+        Tier1 = [pscustomobject]@{
+            UserPaths = @("OU=Admins,OU=Tier 1,OU=Admin")
+            ServiceAccountPaths = @("OU=Service Accounts,OU=Tier 1,OU=Admin")
+            ComputerPaths = @("OU=Server,OU=Tier 1,OU=Admin")
+            KerberosAuthenticationPolicyName = "Tier 1 restriction"
+            ComputerGroupName = "Tier 1 server"
+        }
+        ProtectedUsers = "All-Tiers"
+        LogPath = "C:\Logs\TierLevelIsolation"
+        PrivilegedGroupsCleanUp = $true
+        GMSAName = "TierLevel-mgmt"
+        EnableClaimSupport = $true
+    }
+    .\install.ps1 -InstallationParameters $Parameters
+
+    Performs a complete non-interactive installation using a nested PowerShell object.
+
 .NOTES
+    Requirements:
+    - Windows PowerShell with the ActiveDirectory and GroupPolicy modules.
+    - Appropriate Active Directory, SYSVOL, authentication-policy, and GPO permissions.
+    - Enterprise Admin membership is recommended and required for some forest-wide operations.
+
+    Important: This script changes security-sensitive Active Directory and Group Policy settings.
+    Test the installation in a non-production forest and maintain a tested break-glass process.
+
     Version 0.2.20241206
         Initial Version
     Version 0.2.20250103
@@ -95,31 +184,43 @@ possibility of such damages
     Version 0.2.20260825.3
         Display the current domain during OU validation
         Use values from an existing configuration as setup defaults
+    Version 0.2.20260828.1
+        Added a detailed installation transcript with a unique file name to the temporary directory
+    Version 0.2.20260828.2
+        Added complete comment-based help and detailed inline documentation
+    Version 0.2.20260828.3
+        Added a reusable PowerShell module ZIP package to the Documents directory
+    Version 0.2.20260828.4
+        Added complete non-interactive parameterization through a PowerShell object
+        Corrected scope-aware OU processing for all computer, user, and service-account paths
+    Version 0.2.20260828.5
+        Standardized Tier 0 terminology as Tier 0 computer
 
 #>
 param(
     [switch]$InstallPSModuleOnly,
-    [switch]$AdvancedSetupMode
+    [switch]$AdvancedSetupMode,
+    [Parameter()]
+    [ValidateNotNull()]
+    [psobject]$InstallationParameters
 )
-<# Function create the entire OU path of the relative distinuished name without the domain component. This function
-is required to provide the same OU structure in the entrie forest
+<#
 .SYNOPSIS 
-    Create OU path in the current $DomainDNS
+    Creates an organizational unit path in a specified domain.
 .DESCRIPTION
-    create OU and sub OU to build the entire OU path. As an example on a DN like OU=Computers,OU=Tier 1,OU=Admin in
-    contoso. The funtion create in the 1st round the OU=Admin if requried, in the 2nd round the OU=Tier 1,OU=Admin
-    and so on till the entrie path is created
+    Creates every missing OU component from the domain root toward the leaf OU. The function
+    accepts a relative OU path or a full distinguished name. A full distinguished name must
+    belong to the domain specified by DomainDNS.
 .PARAMETER OUPath 
-    the relative OU path withou domain component
+    Relative OU path, such as OU=Server,OU=Tier 0,OU=Admin, or a complete distinguished name.
 .PARAMETER DomainDNS
-    Domain DNS Name
+    DNS name of the target Active Directory domain, such as contoso.com.
 .EXAMPLE
-    CreateOU -OUPath "OU=Test,OU=Demo" -DomainDNS "contoso.com"
+    New-TierLevelOU -OUPath "OU=Test,OU=Demo" -DomainDNS "contoso.com"
+
+    Creates OU=Demo at the domain root and OU=Test below OU=Demo when either OU is missing.
 .OUTPUTS
-    $True
-        if the OUs are sucessfully create
-    $False
-        If at least one OU cannot created. It the user has not the required rights, the function will also return $false 
+    System.Boolean. Returns $true when the path exists or was created successfully; otherwise $false.
 #>
 function New-TierLevelOU {
     [cmdletBinding()]
@@ -130,7 +231,7 @@ function New-TierLevelOU {
         [string]$DomainDNS
     )
     try {
-        #load the OU path into array to create the entire path step by step
+        # Resolve the authoritative domain DN and reject a full DN belonging to another domain.
         $DomainDN = (Get-ADDomain -Server $DomainDNS).DistinguishedName
         if ($OUPath -like "*dc=*"){
             if ($OUPath -notlike "*$domainDN"){
@@ -139,7 +240,7 @@ function New-TierLevelOU {
                 $OUPath = [regex]::Match($OUPath, "^(.*?)(?i)(?=,dc=)").Value
             }
         }
-        #normalize OU remove 
+        # Normalize separators and strip the domain suffix before processing individual RDNs.
         $OUPath = [regex]::Replace($OUPath, "\s?,\s?", ",")
         if ($OUPath.Contains("DC=")) {
             $OUPath = [regex]::Match($OUPath, "((CN|OU)=[^,]+,)+")
@@ -147,26 +248,25 @@ function New-TierLevelOU {
         }
         $aryOU = $OUPath.Split(",")
         $BuildOUPath = ""
-        #walk through the entire domain 
+        # Walk from the highest parent OU to the requested leaf and create missing components.
         For ($i = $aryOU.Count; $i -ne 0; $i--) {
-            #to create the Organizational unit the string OU= must be removed to the native name
+            # New-ADOrganizationalUnit expects the OU name without the OU= prefix.
             $OUName = $aryOU[$i - 1].Replace("OU=", "")
-            #if this is the first run of the for loop the OU must in the root. The searbase paramenter is not required 
+            # The first component is searched at the domain root. Later components use their
+            # already validated parent path as SearchBase.
             if ($i -eq $aryOU.Count) {
-                #create the OU if it doesn|t exists in the domain root. 
                 if ([bool]!(Get-ADOrganizationalUnit -Filter "Name -eq '$OUName'" -SearchScope OneLevel -server $DomainDNS)) {
                     Write-Host "$OUName doesn't exist in $OUPath. Creating OU" -ForegroundColor Green
                     New-ADOrganizationalUnit -Name $OUName -Server $DomainDNS                        
                 }
             }
             else {
-                #create the sub ou if required
                 if ([bool]!(Get-ADOrganizationalUnit -Filter "Name -eq '$OUName'" -SearchBase "$BuildOUPath$DomainDN" -Server $DomainDNS)) {
                     Write-Host "$OUPath,$DomainDN doesn't exist. Creating" -ForegroundColor Green
                     New-ADOrganizationalUnit -Name $OUName -Path "$BuildOUPath$DomainDN" -Server $DomainDNS
                 }
             }
-            #extend the OU searchbase with the current OU
+            # Extend the parent path for the next, more specific OU component.
             $BuildOUPath = "$($aryOU[$i-1]),$BuildOUPath"
         }
     } 
@@ -183,18 +283,26 @@ function New-TierLevelOU {
 }
 <#
 .SYNOPSIS
-    creating the Group Managed Service account if required
+    Creates the group managed service account when it does not exist.
 .DESCRIPTION
-    ...
+    Ensures that a KDS root key exists, resolves the principals that may retrieve the managed
+    password, and creates the requested gMSA with AES-256 Kerberos encryption. Existing accounts
+    are left unchanged.
 .PARAMETER GMSAName
-    Is the name of the group managed service account
+    Name of the gMSA. The caller must ensure that the resulting sAMAccountName is no longer than
+    15 characters.
 .PARAMETER AllowTOLogon
-    is the name of the computer where the GMSA is allowed to logon
+    Semicolon-separated computer names permitted to retrieve the managed password. When omitted,
+    the domain controllers are used.
+.PARAMETER Description
+    Description stored on the new Active Directory service account object.
+.EXAMPLE
+    New-GMSA -GMSAName "TierLevel-mgmt" -Description "Tier management account"
+
+    Creates the service account when missing and permits domain controllers to retrieve its
+    managed password.
 .OUTPUTS
-    $True
-        This function will return $true if the GMSA already exists or if the GMSA is successfully created. If the GMSA is successfully created, it will be added to the Enterprise Admins group if it is not already a member of this group.
-    $False
-        This function will return $false if an error occurs while creating the GMSA.
+    System.Boolean. Returns $true when the gMSA exists or is created successfully; otherwise $false.
 #>
 function New-GMSA {
     [cmdletBinding (SupportsShouldProcess)]
@@ -207,20 +315,20 @@ function New-GMSA {
         [string] $Description = ""
     )
     try {
-        #validate the KDS root key exists. If not create the KDS root key
+        # A KDS root key is mandatory for generating gMSA passwords.
         if (![bool](Get-KdsRootKey)) {
             Write-Host "KDS Rootkey is missing." -ForegroundColor Red
             Write-Host "Creating KDS-Rootkey" -ForegroundColor Yellow
             Add-KdsRootKey -EffectiveTime ((Get-Date).AddHours(-10))
         }
-        #Test the GMSA already exists. If the GMSA exists leaf the function with $true
+        # Keep existing service accounts unchanged so reruns remain idempotent.
         if ([bool](Get-ADServiceAccount -Filter "Name -eq '$GMSAName'")) {
             return $true
         }
-        #Provide the list of computers where the GMSA get the allow to logon privilege
+        # Build the principals allowed to retrieve the managed password. If no explicit computer
+        # list is available, authorize all domain controllers.
         $aryAllowToLogon = @()
         if ($aryAllowToLogon -ne "") {
-            #allow to logon to dedicated servers
             foreach ($srv in $AllowTOLogon.Split(";")) {
                 $oComputer = Get-ADComputer -Filter "name -eq '$srv'"
                 $aryAllowToLogon += $oComputer.ComputerObjectDN
@@ -231,7 +339,7 @@ function New-GMSA {
                 $aryAllowToLogon += $srv.ComputerObjectDN
             }
         }
-        #create the GMSA
+        # Require AES-256 Kerberos encryption for the newly created account.
         New-ADServiceAccount -Name $GMSAName -DNSHostName "$GmsaName.$((Get-ADDomain).DNSRoot)" -KerberosEncryptionType AES256 -PrincipalsAllowedToRetrieveManagedPassword $aryAllowToLogon -Description $Description
         $retval = $true
     }
@@ -244,23 +352,16 @@ function New-GMSA {
 
 <#
 .SYNOPSIS
-    Check if the current user is member of the Enterprise Admins group
+    Tests whether the current identity is an Enterprise Admin.
 .DESCRIPTION
-    This function checks if the current user is a member of the Enterprise Admins group. This is required to access the configuration partition of the Active Directory forest.
-    The function checks the SID of the Enterprise Admins group (-519) in the user's group membership.
-    The function returns $true if the user is a member of the Enterprise Admins group and $false otherwise.
+    Examines the current Windows access token for a group SID ending in RID 519, the well-known
+    Enterprise Admins RID in the forest root domain.
 .OUTPUTS
-    $true
-        if the user is a member of the Enterprise Admins group
-    $false
-        if the user is not a member of the Enterprise Admins group or if an error occurs while checking the group membership.
+    System.Boolean. Returns $true when the current token contains Enterprise Admins; otherwise $false.
 .EXAMPLE
-    $isMember = IsMemberOfEnterpriseAdmins
-    if ($isMember) {
-        Write-Host "User is a member of the Enterprise Admins group."
-    } else {
-        Write-Host "User is not a member of the Enterprise Admins group."
-    }
+    IsMemberOfEnterpriseAdmins
+
+    Returns the Enterprise Admin membership state of the current Windows identity.
 #>
 function IsMemberOfEnterpriseAdmins{
     $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent()
@@ -304,26 +405,26 @@ function Get-SelectedDomains {
         }
     )
     $DefaultSelection = if ($DefaultDomainIndices.Count -gt 0) { $DefaultDomainIndices -join "," } else { $Domains.Count }
-    # loop to display the list of domains until the user selects at least one valid domain or all domains
+    # Continue prompting until at least one valid domain index has been selected.
     do {
-        # Show all available domains with their indices for selection
+        # The index after the final domain represents the convenient "all domains" option.
         For ($i = 0; $i -lt $Domains.count; $i++){
             Write-Host "[$i] $($Domains[$i])"
         }
         Write-Host "[$($i)] all domains"
-        # Prompt the user to select domains by entering their indices separated by commas
         $strReadIndex  = Read-Host "Select domains (you can select multiple domain separated by ',' [$DefaultSelection])"
         if ($strReadIndex -eq '') {
             $strReadIndex = $DefaultSelection
         }
         $SelectedDomains = @()
         try {           
-            foreach ($DomainIndex in $strReadIndex -split ","){ #split the input by commas to allow multiple selections
-                $DomainIndex = [int]$DomainIndex.Trim() # Trim any whitespace and convert to integer, if the input is not a valid integer, it will throw an exception
+            foreach ($DomainIndex in $strReadIndex -split ","){
+                # Integer conversion rejects nonnumeric input and routes it to the validation catch.
+                $DomainIndex = [int]$DomainIndex.Trim()
                 if ($DomainIndex -eq  $Domains.count){
                     return $Domains
                 } else {
-                    if ($DomainIndex -ge 0 -and $DomainIndex -le $Domains.Count){ # Check if the index is within the valid range
+                    if ($DomainIndex -ge 0 -and $DomainIndex -le $Domains.Count){
                         $SelectedDomains += $Domains[$DomainIndex]
                     } else {
                         Write-Host "Invalid value $DomainIndex" -ForegroundColor Red
@@ -338,10 +439,94 @@ function Get-SelectedDomains {
     return $SelectedDomains
 }
 
+<#
+.SYNOPSIS
+    Reads an optional property from an installation parameter object.
+.DESCRIPTION
+    Returns the named property value when present. Otherwise, it returns the supplied default.
+    Unlike truthiness-based checks, this helper preserves valid values such as $false, zero, and
+    an empty string.
+.PARAMETER InputObject
+    Object that may contain the requested property.
+.PARAMETER Name
+    Case-insensitive property name to read.
+.PARAMETER DefaultValue
+    Value returned when the input object or property is absent.
+.OUTPUTS
+    System.Object. The configured property value or its default.
+#>
+function Get-InstallationParameterValue {
+    param(
+        [AllowNull()]
+        [psobject]$InputObject,
+        [Parameter(Mandatory)]
+        [string]$Name,
+        [AllowNull()]
+        [object]$DefaultValue
+    )
+
+    if ($null -eq $InputObject) {
+        return $DefaultValue
+    }
+
+    $Property = $InputObject.PSObject.Properties[$Name]
+    if ($null -eq $Property) {
+        return $DefaultValue
+    }
+
+    return $Property.Value
+}
+
 #####################################################################################################################################################################################
-#region  Constanst and default value
+#region Installation logging, constants, and default values
 #####################################################################################################################################################################################
-$ScriptVersion = "0.2.20260825.3"
+$ScriptVersion = "0.2.20260828.5"
+$ObjectParameterMode = $PSBoundParameters.ContainsKey("InstallationParameters")
+if ($ObjectParameterMode) {
+    $InstallPSModuleOnly = [bool](Get-InstallationParameterValue -InputObject $InstallationParameters -Name "InstallPSModuleOnly" -DefaultValue ([bool]$InstallPSModuleOnly))
+    $AdvancedSetupMode = [bool](Get-InstallationParameterValue -InputObject $InstallationParameters -Name "AdvancedSetupMode" -DefaultValue ([bool]$AdvancedSetupMode))
+}
+
+# Create a collision-resistant transcript name. Milliseconds, process ID, and a GUID allow
+# concurrent executions on the same computer without overwriting another installation log.
+$InstallationStartTime = Get-Date
+$InstallationStatus = "Incomplete"
+$PreviousVerbosePreference = $VerbosePreference
+$LogTimestamp = $InstallationStartTime.ToString("yyyyMMdd-HHmmssfff")
+$LogIdentifier = [guid]::NewGuid().ToString("N")
+$LogFileName = "TierLevelIsolation-Installation-$LogTimestamp-$env:COMPUTERNAME-PID$PID-$LogIdentifier.log"
+$InstallationLogFile = Join-Path ([System.IO.Path]::GetTempPath()) $LogFileName
+$TranscriptStarted = $false
+
+# The installation is intentionally aborted when no transcript can be created. This guarantees
+# that every security-sensitive change made by this script has a corresponding audit trail.
+try {
+    Start-Transcript -Path $InstallationLogFile -IncludeInvocationHeader -Force -ErrorAction Stop | Out-Null
+    $TranscriptStarted = $true
+}
+catch {
+    throw "The installation log could not be created at '$InstallationLogFile'. Installation aborted. $($_.Exception.Message)"
+}
+
+# The outer try/finally guarantees that the transcript is finalized even when an inner block uses
+# return or exit. Verbose output is enabled for the duration of the installation to improve detail.
+try {
+    $VerbosePreference = "Continue"
+    Write-Host "Installation log: $InstallationLogFile" -ForegroundColor Cyan
+    Write-Host "Installation started: $($InstallationStartTime.ToString('yyyy-MM-dd HH:mm:ss.fff K'))" -ForegroundColor Cyan
+    Write-Host "Script version: $ScriptVersion" -ForegroundColor Cyan
+    Write-Host "Script path: $PSCommandPath" -ForegroundColor Cyan
+    Write-Host "Computer: $env:COMPUTERNAME" -ForegroundColor Cyan
+    Write-Host "User: $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)" -ForegroundColor Cyan
+    Write-Host "Process ID: $PID" -ForegroundColor Cyan
+    Write-Host "PowerShell version: $($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition))" -ForegroundColor Cyan
+    Write-Host "Operating system: $([System.Environment]::OSVersion.VersionString)" -ForegroundColor Cyan
+    Write-Host "Parameters: InstallPSModuleOnly=$InstallPSModuleOnly; AdvancedSetupMode=$AdvancedSetupMode; ObjectParameterMode=$ObjectParameterMode" -ForegroundColor Cyan
+    if ($ObjectParameterMode) {
+        Write-Host "Installation parameter object:" -ForegroundColor Cyan
+        Write-Host ($InstallationParameters | ConvertTo-Json -Depth 5)
+    }
+    Write-Host "Loading required Active Directory and Group Policy modules" -ForegroundColor Cyan
 try{
     Import-Module ActiveDirectory -ErrorAction Stop
     Import-Module GroupPolicy  -ErrorAction Stop
@@ -351,46 +536,52 @@ catch {
     Write-Host "validate the Active Directory and Group Policy Powershell modules are installed" -ForegroundColor Red
     exit
 }
-#The current domain contains the relevant Tier level groups
+# The current domain hosts the tier server groups. Changes are sent to the nearest domain
+# controller so that group creation remains site-aware.
 $CurrentDomainDNS = (Get-ADDomain).DNSRoot
 $CurrentDC        = (Get-ADDomainController -Discover -NextClosestSite ).HostName.Value
 
-#This Description will be added to the Tier 0 / Tier 1 Commputers group if it will be created during this setup. This Description can't be changed during the setup. 
+# Descriptions assigned to Active Directory objects created by this installer.
 $DescriptionT0ComputerGroup = "This group contains all Tier 0 member computer. This group will be used for the Kerberos Authentication Policy claim"
 $DescriptionT1ComputerGroup = "This group contains any Tier 1 member computer. This group will be used for the Kerberos Authentication Policy claim"
-#This Description will be added to the Group Managemd Service Account if it is required in teh multi-domain forest mode. This Description can't be changed during the setup. 
 $DescriptionGMSA = "This Group Managed service account is used to manage user accounts and groups impacted by the Tier Level Model"
-#This Description will be added to the Tier 0 / Tier 1 Kerberos Authentication Policy if they doesn't exists.This Description can't be changed during the setup. 
-$DescriptionTier0CKerberosAuthenticationPolicy = "This policy aims to isolate Tier 0 systems to ensure the security and integrity of critical IT infrastructures. Users assigned this policy can only log in to computers that are members of the 'Enterprise Domain Controller' group or the 'Tier 0 Server'group. This ensures that only authorized users have access to the most sensitive systems within the organization."
-$DescriptionTier1CKerberosAuthenticationPolicy = "This policy aims to isolate Tier 1 systems to ensure the security and integrity of IT infrastructures. Users assigned this policy can only log in to computers that are members of the 'Tier 1 Server' group or 'Enterprise Domain Controller' group or the 'Tier 0 Server'group. This ensures that only authorized users have access to the most sensitive systems within the organization."
-#Default values for the Kerberos Authenticaiton policy
+$DescriptionTier0CKerberosAuthenticationPolicy = "This policy aims to isolate Tier 0 systems to ensure the security and integrity of critical IT infrastructures. Users assigned this policy can only log in to computers that are members of the 'Enterprise Domain Controller' group or the 'Tier 0 computer' group. This ensures that only authorized users have access to the most sensitive systems within the organization."
+$DescriptionTier1CKerberosAuthenticationPolicy = "This policy aims to isolate Tier 1 systems to ensure the security and integrity of IT infrastructures. Users assigned this policy can only log in to computers that are members of the 'Tier 1 Server' group or 'Enterprise Domain Controller' group or the 'Tier 0 computer' group. This ensures that only authorized users have access to the most sensitive systems within the organization."
+
+# Defaults offered during interactive parameter collection. Existing configuration values take
+# precedence, allowing the script to be rerun without requiring every value to be entered again.
 $DefaultT0KerbAuthPolName = "Tier 0 restriction"
 $DefaultT1KerbAuthPolName = "Tier 1 restriction"
-#Default path of the Tier Level users OU
 $DefaultT0Users = "OU=Admins,OU=Tier 0,OU=Admin"
 $DefaultT1Users = "OU=Admins,OU=Tier 1,OU=Admin"
-#Default path of the Tier Level users OU
 $DefaultT0Computers          =           "OU=Server,OU=Tier 0,OU=Admin"
 $DefaultT0ServiceAccountPath = "OU=Service Accounts,OU=Tier 0,OU=Admin"
 $DefaultT1ServiceAccountPath = "OU=Service Accounts,OU=Tier 1,OU=Admin"
 $DefaultT1Computers          =           "OU=Server,OU=Tier 1,OU=Admin"
-#Default name of the Claim groups
-$DefaultT0ComputerGroupName = "Tier 0 server"
+# Default sAMAccountName values for the tier server claim groups.
+$DefaultT0ComputerGroupName = "Tier 0 computer"
 $DefaultT1ComputerGroupName = "Tier 1 server"
+# Ticket-granting ticket lifetime applied to newly created authentication policies, in minutes.
 $DefaultTGTLifeTime = 240
-#Default Name of the Group Managed Service account 
 $DefaultGMSAName = "TierLevel-mgmt"
-#Default script location path
+
+# Forest-wide deployment locations. Scripts and configuration are placed in SYSVOL so every
+# domain controller and scheduled task can access a consistent copy.
 $ScriptTarget              = "\\$CurrentDomainDNS\SYSVOL\$CurrentDomainDNS\scripts"
 $ModuleTarget              = "\\$CurrentDomainDNS\SYSVOL\$CurrentDomainDNS\PSModules\TierLevelIsolation"
-#Default FQDN configuration file path
 $ConfigFile                = "$ScriptTarget\TierLevelIsolation.config"
-#constantes
+
+# Identity and parsing constants used while importing the bundled GPO and validating full DNs.
 $GPOName = "Tier Level Isolation"
 $GPOBackupID = "68e9eff4-48c4-420d-a229-f1acd8c75c6b"
 $RegExDNDomain = "(?i)(DC=[^,]+,)*DC=.+$"
+# Well-known GPO identifiers present in every Active Directory domain.
 $DefaultDomainControllerPolicy = "6AC1786C-016F-11D2-945F-00C04FB984F9"
 $DefaultDomainPolicy = "31B2F340-016D-11D2-945F-00C04FB984F9"
+
+# Registry policy settings required for Kerberos claims, compound authentication, and armoring.
+# The KDC setting is written to the Default Domain Controllers Policy; the client setting is
+# written to both the Default Domain Controllers Policy and the Default Domain Policy.
 $KDCEnableClaim = @{
     Key = "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\KDC\Parameters"
     ValueName = "EnableCbacAndArmor"
@@ -404,18 +595,21 @@ $ClientKerberosAmoring = @{
     Type = 'DWORD'
 }
 
+#endregion
 
 #########################################################################################################
-# Main program start here
+# Main program
 #########################################################################################################
 
-#This script requires the Active Director and Group Policy Powershell Module. The script terminal if one
-#of the module is missing
+# Display the execution mode after prerequisite modules and installation logging are initialized.
 Write-Host "Welcome to the Tier Level isolation setup script" -ForegroundColor Green
 Write-Host "This script will prepare you active directory to protect Administrators with Kerberos Authentication Policies" -ForegroundColor Green 
 Write-Host "Tier 0 / Tier 1 isolation setup script ($ScriptVersion)" -ForegroundColor Green
 
 #region install TierLevelIsolation module
+# Compare the bundled module manifest with the machine-wide installation. The module is copied only
+# when it is missing or older. A portable ZIP is always refreshed in the current user's Documents
+# directory so that the same module version can be installed on additional computers.
 try{
     $ModulePath = Join-Path $Env:ProgramFiles\WindowsPowerShell\Modules "TierLevelIsolation"
     $SourceModuleManifest = Join-Path $PSScriptRoot "module\TierLevelIsolation.psd1"
@@ -434,7 +628,18 @@ try{
     } else {
         Write-Host "TierLevelIsolation module version $InstalledModuleVersion is already installed" -ForegroundColor Green
     }
+
+    $DocumentsPath = [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::MyDocuments)
+    if ([string]::IsNullOrWhiteSpace($DocumentsPath) -or !(Test-Path -LiteralPath $DocumentsPath -PathType Container)) {
+        throw "The Documents directory for the current user could not be found."
+    }
+    $ModuleArchivePath = Join-Path $DocumentsPath "TierLevelIsolation.zip"
+    Compress-Archive -Path "$PSScriptRoot\module\*" -DestinationPath $ModuleArchivePath -CompressionLevel Optimal -Force -ErrorAction Stop
+    Write-Host "The reusable PowerShell module package was created at $ModuleArchivePath" -ForegroundColor Cyan
+    Write-Host "To use the module on another computer, copy the ZIP file there and extract its contents into a TierLevelIsolation folder under a PowerShell module path." -ForegroundColor Yellow
+
     if ($InstallPSModuleOnly){
+        $InstallationStatus = "Completed"
         exit
     }
     Write-Host "Loading the TierLevelIsolation module" -ForegroundColor Green
@@ -446,26 +651,48 @@ try{
 }
 #endregion
 #region Parameter collection
+# Reuse the persisted configuration as the default for reruns. Configuration changes made by the
+# module commands below are written to the shared configuration file in SYSVOL.
 $ExistingInstallation = Test-Path -LiteralPath $ConfigFile -PathType Leaf
 $ExistingConfiguration = Get-TierLevelIsolationConfiguration
 if ($ExistingInstallation) {
     Write-Host "Existing Tier Level Isolation configuration found. Previous values are used as defaults." -ForegroundColor Green
 }
 
+# Some forest-wide operations require Enterprise Admin rights. The user may continue to inspect or
+# perform operations permitted by delegated rights, but later changes can still fail individually.
 if (!(IsMemberOfEnterpriseAdmins)){
     Write-Host "Enterprise Administrator privileges required to access to configuration partition" -ForegroundColor Yellow
-    $strReadHost = Read-Host "Do you want to continue without Enterprise Administrator privileges y/[n]"
-    if ($strReadHost -eq '') {$strReadHost = "n"}
-    if ($strReadHost -notlike "y*"){
+    $ContinueWithoutEnterpriseAdmin = if ($ObjectParameterMode) {
+        [bool](Get-InstallationParameterValue -InputObject $InstallationParameters -Name "ContinueWithoutEnterpriseAdmin" -DefaultValue $false)
+    } else {
+        $strReadHost = Read-Host "Do you want to continue without Enterprise Administrator privileges y/[n]"
+        $strReadHost -like "y*"
+    }
+    if (!$ContinueWithoutEnterpriseAdmin){
         Write-Host "aborting" -ForegroundColor Yellow
         return
     }
 }
-$Domains = Get-SelectedDomains -Domains (Get-ADForest).Domains -DefaultDomains $ExistingConfiguration.Domains
+# Select the domains whose OU paths and Group Policy settings will be managed.
+$ForestDomains = @((Get-ADForest).Domains)
+if ($ObjectParameterMode) {
+    $DefaultDomains = if ($ExistingConfiguration.Domains.Count -gt 0) { @($ExistingConfiguration.Domains) } else { $ForestDomains }
+    $Domains = @(Get-InstallationParameterValue -InputObject $InstallationParameters -Name "Domains" -DefaultValue $DefaultDomains)
+    if ($Domains.Count -eq 0) {
+        throw "InstallationParameters.Domains must contain at least one domain."
+    }
+    $UnknownDomains = @($Domains | Where-Object { $ForestDomains -notcontains $_ })
+    if ($UnknownDomains.Count -gt 0) {
+        throw "InstallationParameters.Domains contains domains that are not in the current forest: $($UnknownDomains -join ', ')"
+    }
+} else {
+    $Domains = Get-SelectedDomains -Domains $ForestDomains -DefaultDomains $ExistingConfiguration.Domains
+}
 $Domains  | Add-TierLevelIsolationDomain 
 
 
-#Define Tier  Parameters
+# Select the deployment scope. Tier0 and Tier1 are internal command values; All-Tiers enables both.
 Write-Host "Scope-Level:"
 Write-Host "[0] Tier-0"
 Write-Host "[1] Tier-1"
@@ -475,35 +702,65 @@ $DefaultScopeSelection = switch ($ExistingConfiguration.scope) {
     "Tier-1" { "1" }
     Default { "2" }
 }
-do{
-    $strReadHost = Read-Host "Select which scope should be enabled ($DefaultScopeSelection)"
-    if ($strReadHost -eq '') {
-        $strReadHost = $DefaultScopeSelection
+if ($ObjectParameterMode) {
+    $DefaultScope = switch ($DefaultScopeSelection) {
+        "0" { "Tier0" }
+        "1" { "Tier1" }
+        Default { "All-Tiers" }
     }
-    switch ($strReadHost) {
-        "0" { 
-                $scope = "Tier0"
-                break
-            }
-        "1" { 
-                $scope = "Tier1"
-                break
-            }
-        "2" { 
-                $scope = "All-Tiers"
-                break
-            }
-        Default {
-            $scope = ""
-            Write-Host "Invalid selection. Please select 0, 1 or 2." -ForegroundColor Red
-            break
+    $ConfiguredScope = [string](Get-InstallationParameterValue -InputObject $InstallationParameters -Name "Scope" -DefaultValue $DefaultScope)
+    $scope = switch ($ConfiguredScope) {
+        { $_ -in @("Tier0", "Tier-0") } { "Tier0"; break }
+        { $_ -in @("Tier1", "Tier-1") } { "Tier1"; break }
+        "All-Tiers" { "All-Tiers"; break }
+        Default { throw "InstallationParameters.Scope must be Tier0, Tier1, or All-Tiers." }
+    }
+} else {
+    do{
+        $strReadHost = Read-Host "Select which scope should be enabled ($DefaultScopeSelection)"
+        if ($strReadHost -eq '') {
+            $strReadHost = $DefaultScopeSelection
         }
-    }
-}while ($scope -eq '')
+        switch ($strReadHost) {
+            "0" { $scope = "Tier0"; break }
+            "1" { $scope = "Tier1"; break }
+            "2" { $scope = "All-Tiers"; break }
+            Default {
+                $scope = ""
+                Write-Host "Invalid selection. Please select 0, 1 or 2." -ForegroundColor Red
+                break
+            }
+        }
+    } while ($scope -eq '')
+}
 Set-TierLevelIsolationScope $scope
+
+# Collect OU paths and authentication-policy names for each enabled tier. A path can be relative
+# to each selected domain or a complete distinguished name that applies only to its matching domain.
 if (($scope -eq "Tier0") -or ( $scope -eq "All-Tiers") ){
     Write-Host "Tier 0 isolation parameter "
     $Tier0UsersDefault = if ($ExistingConfiguration.Tier0UsersPath.Count -gt 0) { $ExistingConfiguration.Tier0UsersPath -join "; " } else { $DefaultT0Users }
+    if ($ObjectParameterMode) {
+        $Tier0Parameters = Get-InstallationParameterValue -InputObject $InstallationParameters -Name "Tier0" -DefaultValue $null
+        $Tier0UserPathDefaults = if ($ExistingConfiguration.Tier0UsersPath.Count -gt 0) { @($ExistingConfiguration.Tier0UsersPath) } else { @($DefaultT0Users) }
+        $Tier0ServiceAccountPathDefaults = if ($ExistingConfiguration.Tier0ServiceAccountPath.Count -gt 0) { @($ExistingConfiguration.Tier0ServiceAccountPath) } else { @($DefaultT0ServiceAccountPath) }
+        $Tier0ComputerPathDefaults = if ($ExistingConfiguration.Tier0ComputerPath.Count -gt 0) { @($ExistingConfiguration.Tier0ComputerPath) } else { @($DefaultT0Computers) }
+        foreach ($Path in @(Get-InstallationParameterValue -InputObject $Tier0Parameters -Name "UserPaths" -DefaultValue $Tier0UserPathDefaults)) {
+            Add-TierLevelIsolationUserPath Tier0 $Path
+        }
+        foreach ($Path in @(Get-InstallationParameterValue -InputObject $Tier0Parameters -Name "ServiceAccountPaths" -DefaultValue $Tier0ServiceAccountPathDefaults)) {
+            Add-TierLevelIsolationServiceAccountPath Tier0 $Path
+        }
+        foreach ($Path in @(Get-InstallationParameterValue -InputObject $Tier0Parameters -Name "ComputerPaths" -DefaultValue $Tier0ComputerPathDefaults)) {
+            Add-TierLevelIsolationComputerPath Tier0 $Path
+        }
+        $Tier0KerberosPolicyDefault = if ($ExistingConfiguration.T0KerbAuthPolName) { $ExistingConfiguration.T0KerbAuthPolName } else { $DefaultT0KerbAuthPolName }
+        $Tier0KerberosPolicyName = [string](Get-InstallationParameterValue -InputObject $Tier0Parameters -Name "KerberosAuthenticationPolicyName" -DefaultValue $Tier0KerberosPolicyDefault)
+        if ([string]::IsNullOrWhiteSpace($Tier0KerberosPolicyName)) {
+            throw "InstallationParameters.Tier0.KerberosAuthenticationPolicyName cannot be empty."
+        }
+        Set-TierLevelIsolationKerberosAuthenticationPolicy Tier0 $Tier0KerberosPolicyName -Force
+    } else {
     do {
         $strReadHost = Read-Host "Distinguishedname of the Tier 0 Admin OU ($Tier0UsersDefault)"
         if ($strReadHost -ne '') {
@@ -525,22 +782,44 @@ if (($scope -eq "Tier0") -or ( $scope -eq "All-Tiers") ){
     } while ($strReadHost -like "y*")
     $Tier0ComputersDefault = if ($ExistingConfiguration.Tier0ComputerPath.Count -gt 0) { $ExistingConfiguration.Tier0ComputerPath -join "; " } else { $DefaultT0Computers }
     do {
-        $strReadHost = Read-Host "Distinguishedname of the Tier 0 server OU ($Tier0ComputersDefault)"
+        $strReadHost = Read-Host "Distinguishedname of the Tier 0 computer OU ($Tier0ComputersDefault)"
         if ($strReadHost -ne '') {
             Add-TierLevelIsolationComputerPath Tier0 $strReadHost
         } elseif ($ExistingConfiguration.Tier0ComputerPath.Count -eq 0) {
             Add-TierLevelIsolationComputerPath Tier0 $DefaultT0Computers
         }
-        $strReadHost = Read-Host "Do you want to add another Tier 0 server OU (y/[n])"
+        $strReadHost = Read-Host "Do you want to add another Tier 0 computer OU (y/[n])"
     }while ($strReadHost -like "y*")
     $Tier0KerberosPolicyDefault = if ($ExistingConfiguration.T0KerbAuthPolName) { $ExistingConfiguration.T0KerbAuthPolName } else { $DefaultT0KerbAuthPolName }
     $strReadHost = Read-Host "Provide the Tier 0 Kerberos Authentication policy name ($Tier0KerberosPolicyDefault)"
     if ($strReadHost -eq ''){$strReadHost = $Tier0KerberosPolicyDefault}
     Set-TierLevelIsolationKerberosAuthenticationPolicy Tier0 $strReadHost -Force
+    }
 }
 if ($scope -eq "Tier1" -or $scope -eq "All-Tiers"){
     Write-Host "Tier 1 isolation parameter "
     $Tier1UsersDefault = if ($ExistingConfiguration.Tier1UsersPath.Count -gt 0) { $ExistingConfiguration.Tier1UsersPath -join "; " } else { $DefaultT1Users }
+    if ($ObjectParameterMode) {
+        $Tier1Parameters = Get-InstallationParameterValue -InputObject $InstallationParameters -Name "Tier1" -DefaultValue $null
+        $Tier1UserPathDefaults = if ($ExistingConfiguration.Tier1UsersPath.Count -gt 0) { @($ExistingConfiguration.Tier1UsersPath) } else { @($DefaultT1Users) }
+        $Tier1ServiceAccountPathDefaults = if ($ExistingConfiguration.Tier1ServiceAccountPath.Count -gt 0) { @($ExistingConfiguration.Tier1ServiceAccountPath) } else { @($DefaultT1ServiceAccountPath) }
+        $Tier1ComputerPathDefaults = if ($ExistingConfiguration.Tier1ComputerPath.Count -gt 0) { @($ExistingConfiguration.Tier1ComputerPath) } else { @($DefaultT1Computers) }
+        foreach ($Path in @(Get-InstallationParameterValue -InputObject $Tier1Parameters -Name "UserPaths" -DefaultValue $Tier1UserPathDefaults)) {
+            Add-TierLevelIsolationUserPath Tier1 $Path
+        }
+        foreach ($Path in @(Get-InstallationParameterValue -InputObject $Tier1Parameters -Name "ServiceAccountPaths" -DefaultValue $Tier1ServiceAccountPathDefaults)) {
+            Add-TierLevelIsolationServiceAccountPath Tier1 $Path
+        }
+        foreach ($Path in @(Get-InstallationParameterValue -InputObject $Tier1Parameters -Name "ComputerPaths" -DefaultValue $Tier1ComputerPathDefaults)) {
+            Add-TierLevelIsolationComputerPath Tier1 $Path
+        }
+        $Tier1KerberosPolicyDefault = if ($ExistingConfiguration.T1KerbAuthPolName) { $ExistingConfiguration.T1KerbAuthPolName } else { $DefaultT1KerbAuthPolName }
+        $Tier1KerberosPolicyName = [string](Get-InstallationParameterValue -InputObject $Tier1Parameters -Name "KerberosAuthenticationPolicyName" -DefaultValue $Tier1KerberosPolicyDefault)
+        if ([string]::IsNullOrWhiteSpace($Tier1KerberosPolicyName)) {
+            throw "InstallationParameters.Tier1.KerberosAuthenticationPolicyName cannot be empty."
+        }
+        Set-TierLevelIsolationKerberosAuthenticationPolicy Tier1 $Tier1KerberosPolicyName -Force
+    } else {
     do {
         $strReadHost = Read-Host "Distinguishedname of the Tier 1 Admin OU ($Tier1UsersDefault)"
         if ($strReadHost -ne '') {
@@ -574,25 +853,44 @@ if ($scope -eq "Tier1" -or $scope -eq "All-Tiers"){
     $strReadHost = Read-Host "Provide the Tier 1 Kerberos Authentication policy name ($Tier1KerberosPolicyDefault)"
     if ($strReadHost -eq ''){$strReadHost = $Tier1KerberosPolicyDefault}
     Set-TierLevelIsolationKerberosAuthenticationPolicy Tier1 $strReadHost -force
+    }
 }
 if ($scope -eq "Tier0" -or $scope -eq "All-Tiers"){
-    Write-Host "Tier 0 server group parameter "
+    Write-Host "Tier 0 computer group parameter "
     $Tier0ComputerGroupDefault = if ($ExistingConfiguration.Tier0ComputerGroup) { $ExistingConfiguration.Tier0ComputerGroup } else { $DefaultT0ComputerGroupName }
-    $strReadHost = Read-Host "Provide the Tier 0 server samaccount group name ($Tier0ComputerGroupDefault)"
-    if ($strReadHost -eq ''){$strReadHost = $Tier0ComputerGroupDefault}
-    Set-TierLevelIsolationComputerGroup Tier0 $strReadHost -Force
+    if ($ObjectParameterMode) {
+        $Tier0Parameters = Get-InstallationParameterValue -InputObject $InstallationParameters -Name "Tier0" -DefaultValue $null
+        $Tier0ComputerGroupName = [string](Get-InstallationParameterValue -InputObject $Tier0Parameters -Name "ComputerGroupName" -DefaultValue $Tier0ComputerGroupDefault)
+        if ([string]::IsNullOrWhiteSpace($Tier0ComputerGroupName)) {
+            throw "InstallationParameters.Tier0.ComputerGroupName cannot be empty."
+        }
+    } else {
+        $Tier0ComputerGroupName = Read-Host "Provide the Tier 0 computer samaccount group name ($Tier0ComputerGroupDefault)"
+        if ($Tier0ComputerGroupName -eq ''){$Tier0ComputerGroupName = $Tier0ComputerGroupDefault}
+    }
+    Set-TierLevelIsolationComputerGroup Tier0 $Tier0ComputerGroupName -Force
 }
 if (($scope -eq "Tier1") -or ( $scope -eq "All-Tiers")){
     Write-Host "Tier 1 isolation parameter "
     $Tier1ComputerGroupDefault = if ($ExistingConfiguration.Tier1ComputerGroup) { $ExistingConfiguration.Tier1ComputerGroup } else { $DefaultT1ComputerGroupName }
-    $strReadHost = Read-Host "Provide the Tier 1 server samaccount group name ($Tier1ComputerGroupDefault)"
-    if ($strReadHost -eq ''){$strReadHost = $Tier1ComputerGroupDefault}
-    Set-TierLevelIsolationComputerGroup Tier1 $strReadHost -Force
+    if ($ObjectParameterMode) {
+        $Tier1Parameters = Get-InstallationParameterValue -InputObject $InstallationParameters -Name "Tier1" -DefaultValue $null
+        $Tier1ComputerGroupName = [string](Get-InstallationParameterValue -InputObject $Tier1Parameters -Name "ComputerGroupName" -DefaultValue $Tier1ComputerGroupDefault)
+        if ([string]::IsNullOrWhiteSpace($Tier1ComputerGroupName)) {
+            throw "InstallationParameters.Tier1.ComputerGroupName cannot be empty."
+        }
+    } else {
+        $Tier1ComputerGroupName = Read-Host "Provide the Tier 1 server samaccount group name ($Tier1ComputerGroupDefault)"
+        if ($Tier1ComputerGroupName -eq ''){$Tier1ComputerGroupName = $Tier1ComputerGroupDefault}
+    }
+    Set-TierLevelIsolationComputerGroup Tier1 $Tier1ComputerGroupName -Force
 }
+# Advanced settings control ongoing account management by the scheduled scripts. LogPath belongs
+# to those runtime scripts; it is independent from this installer's transcript in the temp folder.
 if ($AdvancedSetupMode) {
     Write-Host "Do you want to manage protected users group with tiering?"
     Write-Host "[0] Tier-0 users will be added to protected users"
-    Write-Host "[1] Tier-1 users will be added tp protected users"
+    Write-Host "[1] Tier-1 users will be added to protected users"
     Write-Host "[2] Tier-0 and Tier-1 users will be added to protected users"
     Write-Host "[3] Protected users will not be managed with Tiering"
     $DefaultProtectedUsersSelection = if (($ExistingConfiguration.ProtectedUsers -contains "Tier-0") -and ($ExistingConfiguration.ProtectedUsers -contains "Tier-1")) {
@@ -604,151 +902,116 @@ if ($AdvancedSetupMode) {
     } else {
         "3"
     }
-    $strReadHost = Read-Host "Select protected users level [$DefaultProtectedUsersSelection]"
-    if ($strReadHost -eq '') {
-        $strReadHost = $DefaultProtectedUsersSelection
+    if ($ObjectParameterMode) {
+        $DefaultProtectedUsers = switch ($DefaultProtectedUsersSelection) {
+            "0" { "Tier-0" }
+            "1" { "Tier-1" }
+            "2" { "All-Tiers" }
+            Default { "None" }
+        }
+        $ProtectedUsersSelection = [string](Get-InstallationParameterValue -InputObject $InstallationParameters -Name "ProtectedUsers" -DefaultValue $DefaultProtectedUsers)
+        if ($ProtectedUsersSelection -notin @("Tier-0", "Tier-1", "All-Tiers", "None")) {
+            throw "InstallationParameters.ProtectedUsers must be Tier-0, Tier-1, All-Tiers, or None."
+        }
+        Set-TierLevelProtectedUsersState $ProtectedUsersSelection
+    } else {
+        $strReadHost = Read-Host "Select protected users level [$DefaultProtectedUsersSelection]"
+        if ($strReadHost -eq '') {
+            $strReadHost = $DefaultProtectedUsersSelection
+        }
+        switch ($strReadHost) {
+            "0" { Set-TierLevelProtectedUsersState "Tier-0" }
+            "1" { Set-TierLevelProtectedUsersState "Tier-1" }
+            "2" { Set-TierLevelProtectedUsersState "All-Tiers" }
+            Default { Set-TierLevelProtectedUsersState "None" }
+        }
     }
-    switch ($strReadHost) {
-        "0" { Set-TierLevelProtectedUsersState "Tier-0" }
-        "1" { Set-TierLevelProtectedUsersState "Tier-1" }
-        "2" { Set-TierLevelProtectedUsersState "All-Tiers" }
-        Default { Set-TierLevelProtectedUsersState "None" }
-    }
-    do {
+
+    if ($ObjectParameterMode) {
         $LogPathDefault = $ExistingConfiguration.LogPath
-        $LogPathPrompt = if ([string]::IsNullOrWhiteSpace($LogPathDefault)) { "leave empty to use local AppData" } else { $LogPathDefault }
-        $LogPath = Read-Host "Provide the debug log directory ($LogPathPrompt)"
-        if ([string]::IsNullOrWhiteSpace($LogPath)) {
-            $LogPath = $LogPathDefault
+        $LogPath = [string](Get-InstallationParameterValue -InputObject $InstallationParameters -Name "LogPath" -DefaultValue $LogPathDefault)
+        if (![string]::IsNullOrWhiteSpace($LogPath) -and !(Test-Path -LiteralPath $LogPath -PathType Container)) {
+            throw "InstallationParameters.LogPath '$LogPath' does not exist or is not accessible."
         }
-        $LogPathIsValid = [string]::IsNullOrWhiteSpace($LogPath) -or (Test-Path -LiteralPath $LogPath -PathType Container)
-        if (-not $LogPathIsValid) {
-            Write-Host "The log directory '$LogPath' does not exist or is not accessible." -ForegroundColor Red
-        }
-    } while (-not $LogPathIsValid)
+    } else {
+        do {
+            $LogPathDefault = $ExistingConfiguration.LogPath
+            $LogPathPrompt = if ([string]::IsNullOrWhiteSpace($LogPathDefault)) { "leave empty to use local AppData" } else { $LogPathDefault }
+            $LogPath = Read-Host "Provide the debug log directory ($LogPathPrompt)"
+            if ([string]::IsNullOrWhiteSpace($LogPath)) {
+                $LogPath = $LogPathDefault
+            }
+            $LogPathIsValid = [string]::IsNullOrWhiteSpace($LogPath) -or (Test-Path -LiteralPath $LogPath -PathType Container)
+            if (-not $LogPathIsValid) {
+                Write-Host "The log directory '$LogPath' does not exist or is not accessible." -ForegroundColor Red
+            }
+        } while (-not $LogPathIsValid)
+    }
     Set-DebugLogPath -LogPath $LogPath
 }
+# Privileged-group cleanup removes tier-managed users from incompatible privileged groups during
+# subsequent management runs. Preserve the configured state during upgrades.
 $DefaultPrivilegedGroupsCleanUp = if ($ExistingInstallation) { [System.Convert]::ToBoolean($ExistingConfiguration.PrivilegedGroupsCleanUp) } else { $true }
 $DefaultPrivilegedGroupsCleanUpSelection = if ($DefaultPrivilegedGroupsCleanUp) { "y" } else { "n" }
-$strReadHost = Read-Host "Enable privileged Tier 0 group cleanup [Y/N] ($DefaultPrivilegedGroupsCleanUpSelection)"
-if ($strReadHost -eq '') {
-    $strReadHost = $DefaultPrivilegedGroupsCleanUpSelection
-}
-if ($strReadHost -like "n*"){
-    Set-TierLevelPrivilegedGroupsCleanUpState $false
+if ($ObjectParameterMode) {
+    $PrivilegedGroupsCleanUp = [bool](Get-InstallationParameterValue -InputObject $InstallationParameters -Name "PrivilegedGroupsCleanUp" -DefaultValue $DefaultPrivilegedGroupsCleanUp)
 } else {
-    Set-TierLevelPrivilegedGroupsCleanUpState $true
+    $strReadHost = Read-Host "Enable privileged Tier 0 group cleanup [Y/N] ($DefaultPrivilegedGroupsCleanUpSelection)"
+    if ($strReadHost -eq '') {
+        $strReadHost = $DefaultPrivilegedGroupsCleanUpSelection
+    }
+    $PrivilegedGroupsCleanUp = $strReadHost -notlike "n*"
 }
+Set-TierLevelPrivilegedGroupsCleanUpState $PrivilegedGroupsCleanUp
     
 #endregion
 
 #region OU validation / creation
+# Process every configured OU category for every selected domain. Relative paths receive the
+# current domain DN. Full DNs are created only when their DC components match the current domain,
+# preventing an OU intended for one domain from being created in another domain.
 $config = Get-TierLevelIsolationConfiguration
 foreach ($domain in $config.Domains){
     Write-Host "Validating organizational units in domain $domain" -ForegroundColor Green
     $DomainDN = (Get-ADDomain -Server $domain).DistinguishedName
-    foreach ($OU in $config.Tier0ComputerPath){
-        if ($OU -like "*DC=*"){
-            if ([regex]::Match($OU,$RegExDNDomain).Value -eq $DomainDN){
-                if (!(New-TierLevelOU -OUPath "$OU" -DomainDNS $domain )){
-                    Write-Host "Can't create the OU $OU in $domain" -ForegroundColor Red
-                    Write-Host "script aborted" -ForegroundColor Red
-                    return
-                }
-            }
-        } else {
-            if (!(New-TierLevelOU -OUPath "$OU,$DomainDN" -DomainDNS $domain )){
-                Write-Host "Can't create the OU $OU in $domain" -ForegroundColor Red
-                Write-Host "script aborted" -ForegroundColor Red
-                return
-            }
-        }
+    $ConfiguredOUPaths = @()
+    if ($scope -eq "Tier0" -or $scope -eq "All-Tiers") {
+        $ConfiguredOUPaths += @($config.Tier0ComputerPath)
+        $ConfiguredOUPaths += @($config.Tier0UsersPath)
+        $ConfiguredOUPaths += @($config.Tier0ServiceAccountPath)
     }
-    foreach ($OU in $config.Tier0UsersPath){
-        if ($OU -like "*DC=*"){
-            if ([regex]::Match($OU,$RegExDNDomain).Value -eq $DomainDN){
-                if (!(New-TierLevelOU -OUPath "$OU" -DomainDNS $domain )){
-                    Write-Host "Can't create the OU $OU in $domain" -ForegroundColor Red
-                    Write-Host "script aborted" -ForegroundColor Red
-                    return
-                }
-            }
-        } else {
-            if (!(New-TierLevelOU -OUPath "$OU,$DomainDN" -DomainDNS $domain )){
-                Write-Host "Can't create the OU $OU in $domain" -ForegroundColor Red
-                Write-Host "script aborted" -ForegroundColor Red
-                return
-            }
-        }
+    if ($scope -eq "Tier1" -or $scope -eq "All-Tiers") {
+        $ConfiguredOUPaths += @($config.Tier1ComputerPath)
+        $ConfiguredOUPaths += @($config.Tier1UsersPath)
+        $ConfiguredOUPaths += @($config.Tier1ServiceAccountPath)
     }
-    foreach ($OU in $config.Tier0ServiceAccountPath){
-        if ($OU -like "*DC=*"){
-            if ([regex]::Match($OU,$RegExDNDomain).Value -eq $DomainDN){
-                if (!(New-TierLevelOU -OUPath "$OU" -DomainDNS $domain)){
-                    Write-Host "Can't create the OU $OU in $domain" -ForegroundColor Red
-                    Write-Host "script aborted" -ForegroundColor Red
-                    return
-                }
+
+    foreach ($OU in @($ConfiguredOUPaths | Select-Object -Unique)) {
+        if ([string]::IsNullOrWhiteSpace($OU)) {
+            continue
+        }
+
+        # A full DN applies only to its own domain. Relative paths are expanded for every selected domain.
+        if ($OU -like "*DC=*") {
+            if ([regex]::Match($OU, $RegExDNDomain).Value -ne $DomainDN) {
+                continue
             }
+            $TargetOUPath = $OU
         } else {
-            if (!(New-TierLevelOU -OUPath "$OU,$DomainDN" -DomainDNS $domain )){
-                Write-Host "Can't create the OU $OU in $domain" -ForegroundColor Red
-                Write-Host "script aborted" -ForegroundColor Red
-                return
-            }
+            $TargetOUPath = "$OU,$DomainDN"
         }
-    }
-    if (($scope -eq "Tier-1") -or ($scope -eq "All-Tiers")){
-        foreach ($OU in $config.Tier1ComputerPath){
-            if ($OU -like "*DC=*"){
-                if ([regex]::Match($OU,$RegExDNDomain).Value -eq $DomainDN){
-                    foreach ($OU in $config.Tier0UsersPath){
-                        if ($OU -like "*DC=*"){
-                            if ([regex]::Match($OU,$RegExDNDomain).Value -eq $DomainDN){
-                                if (!(New-TierLevelOU -OUPath "$OU" -DomainDNS $domain )){ 
-                                    Write-Host "Can't create the OU $OU in $domain" -ForegroundColor Red
-                                    Write-Host "script aborted" -ForegroundColor Red
-                                    return
-                                }
-                            }
-                        } else {
-                            if (!(New-TierLevelOU -OUPath "$OU,$DomainDN" -DomainDNS $domain )){
-                                Write-Host "Can't create the OU $OU in $domain" -ForegroundColor Red
-                                Write-Host "script aborted" -ForegroundColor Red
-                                return
-                            }
-                        }
-                    } 
-                }
-            } else {
-                if (!(New-TierLevelOU -OUPath "$OU,$DomainDN" -DomainDNS $domain )){
-                    Write-Host "Can't create the OU $OU in $domain" -ForegroundColor Red
-                    Write-Host "script aborted" -ForegroundColor Red
-                    return
-                }
-            }
-        }
-        foreach ($OU in $config.tier1UsersPath){
-            if ($OU -like "*DC=*"){
-                if ([regex]::Match($OU,$RegExDNDomain).Value -eq $DomainDN){
-                    if (!(New-TierLevelOU -OUPath $OU -DomainDNS $domain )){
-                        Write-Host "Can't create the OU $OU in $domain" -ForegroundColor Red
-                        Write-Host "script aborted" -ForegroundColor Red
-                        return
-                    }
-                }
-            } else {
-                if (!(New-TierLevelOU -OUPath "$OU,$DomainDN" -DomainDNS $domain )){
-                    Write-Host "Can't create the OU $OU in $domain" -ForegroundColor Red
-                    Write-Host "script aborted" -ForegroundColor Red
-                    return
-                }
-            }
+
+        if (!(New-TierLevelOU -OUPath $TargetOUPath -DomainDNS $domain)) {
+            Write-Host "Can't create the OU $OU in $domain" -ForegroundColor Red
+            Write-Host "script aborted" -ForegroundColor Red
+            return
         }
     }
 }
 #endregion
-#Tier 0 server group is needed in any scope
+
+# Resolve existing server claim groups before attempting creation. Each enabled tier gets a
+# universal group whose SID is embedded in the authentication policy's access-control expression.
 if ($scope -eq "Tier0" -or $scope -eq "All-Tiers"){
     $Tier0ComputerGroup = Get-ADGroup -Filter "SamAccountName -eq '$($config.Tier0ComputerGroup)'" 
 }
@@ -756,7 +1019,9 @@ if ($scope -eq "Tier1" -or $scope -eq "All-Tiers"){
     $Tier1ComputerGroup = Get-ADGroup -Filter "SamAccountName -eq '$($config.Tier1ComputerGroup)'"    
 }
 
-$GroupWaitCounter = 0 #If the universal group is create via a DC who is not a GC, the group is not visible in the forest until the GC is replicated
+# A newly created universal group might not be immediately visible through a global catalog.
+# Retry for up to 100 seconds to tolerate normal inter-DC replication latency.
+$GroupWaitCounter = 0
 try {
     if (($Null -eq $Tier0ComputerGroup) -and (($scope -eq "Tier0") -or ($scope -eq "All-Tiers"))){
         New-ADGroup -Name $config.Tier0ComputerGroup -GroupScope Universal -Description $DescriptionT0ComputerGroup -Server $CurrentDC
@@ -813,14 +1078,17 @@ catch {
     return
 }
 
-#Create the Kerberos Authentication Policy if required
+# Create enforced Kerberos authentication policies when missing. The SDDL conditional ACE uses:
+# - SID(ED): the well-known Enterprise Domain Controllers group.
+# - Member_of_any with the configured group SID: computers assigned to the permitted tier.
+# Tier 0 users may authenticate to enterprise DCs or Tier 0 computers. Tier 1 users additionally
+# receive access to Tier 1 servers. Existing policies are deliberately not overwritten.
 if (($scope -eq "Tier0") -or ($scope -eq "All-Tiers")){
     try {
         if ([bool](Get-ADAuthenticationPolicy -Filter "Name -eq '$($config.T0KerbAuthPolName)'")){
             Write-Host "Kerberos Authentication Policy $($config.T0KerbAuthPolName) already exists. Please validate the policy manual" -ForegroundColor Yellow
         } else {
-            #create a Kerberos authentication policy, wher assinged users can logon to members of enterprise domain controllers
-            #or member of the Tier 0 server group
+            # Conditional access expression for Enterprise DCs and Tier 0 computer-group members.
             $AllowToAutenticateFromSDDL = "O:SYG:SYD:(XA;OICI;CR;;;WD;((Member_of {SID(ED)}) || (Member_of_any {SID($($Tier0ComputerGroup.SID))})))"
             New-ADAuthenticationPolicy -Name $config.T0KerbAuthPolName`
                                        -Enforce `
@@ -846,10 +1114,9 @@ if (($scope -eq "Tier0") -or ($scope -eq "All-Tiers")){
 if (($scope -eq "Tier1") -or ($scope -eq "All-Tiers")){
     try {
         if ([bool](Get-ADAuthenticationPolicy -Filter "Name -eq '$($config.T1KerbAuthPolName)'")){
-            Write-Host "Kerberos Authentication Policy $($config.T1KerbAuthPolName)) already exists. Please validate the policy manual" -ForegroundColor Yellow
+            Write-Host "Kerberos Authentication Policy $($config.T1KerbAuthPolName) already exists. Please validate the policy manual" -ForegroundColor Yellow
         } else {
-            #create a Kerberos authentication policy, wher assinged users can logon to members of enterprise domain controllers
-            #or member of the Tier 0 server group
+            # Conditional access expression for Enterprise DCs, Tier 0, and Tier 1 server groups.
             $AllowToAutenticateFromSDDL = "O:SYG:SYD:(XA;OICI;CR;;;WD;(((Member_of {SID(ED)}) || (Member_of_any {SID($($Tier0ComputerGroup.SID))})) || (Member_of_any {SID($($Tier1ComputerGroup.SID))})))"
             New-ADAuthenticationPolicy -Name $config.T1KerbAuthPolName `
                                        -Enforce `
@@ -873,14 +1140,26 @@ if (($scope -eq "Tier1") -or ($scope -eq "All-Tiers")){
         exit
     }
 }
-#create the GMSA if the Tier Level isolation works in Mulit-Domain-Domain Forest mode
-$strReadHost = Read-Host "Group Managed Service AccountName ($DefaultGMSAName)"
-while ($strReadHost.Length -gt 15) {
-    Write-Host "The service account has a samAccountName attribute of '$strReadHost' which is too long; the samAccountName attribute must not be longer than 15 characters."
+# The scheduled account-management tasks run as this gMSA. The 15-character validation protects
+# compatibility with the service account's sAMAccountName. Creating a KDS root key with a past
+# effective time permits immediate use when the forest has no existing key.
+if ($ObjectParameterMode) {
+    $GMSAName = [string](Get-InstallationParameterValue -InputObject $InstallationParameters -Name "GMSAName" -DefaultValue $DefaultGMSAName)
+    if ([string]::IsNullOrWhiteSpace($GMSAName)) {
+        $GMSAName = $DefaultGMSAName
+    }
+    if ($GMSAName.Length -gt 15) {
+        throw "InstallationParameters.GMSAName '$GMSAName' is longer than the 15-character sAMAccountName limit."
+    }
+} else {
     $strReadHost = Read-Host "Group Managed Service AccountName ($DefaultGMSAName)"
+    while ($strReadHost.Length -gt 15) {
+        Write-Host "The service account has a samAccountName attribute of '$strReadHost' which is too long; the samAccountName attribute must not be longer than 15 characters."
+        $strReadHost = Read-Host "Group Managed Service AccountName ($DefaultGMSAName)"
+    }
+    if ($strReadHost -eq '') {$strReadHost = $DefaultGMSAName}
+    $GMSAName = $strReadHost
 }
-if ($strReadHost -eq '') {$strReadHost = $DefaultGMSAName}
-$GMSAName = $strReadHost
 if ($null -eq (Get-ADServiceAccount -Filter "name -eq '$GMSAName'")){
     if (![bool](Get-KdsRootKey)){
         Write-Host "KDS Rootkey is missing." -ForegroundColor Red
@@ -893,6 +1172,9 @@ if ($null -eq (Get-ADServiceAccount -Filter "name -eq '$GMSAName'")){
 $oGMSA = Get-ADServiceAccount -Filter "name -eq '$GMSAName'"
 $ForestRootDomain = (Get-ADForest).RootDomain
 $EAdminsGroup = Get-ADGroup -Identity "$((Get-ADDomain -server (Get-ADForest).RootDomain).DomainSid)-519" -Properties Members -Server $ForestRootDomain
+
+# The management account needs forest-wide authority for the current scheduled-task design.
+# Membership is added only when absent; a failure is reported for manual remediation.
 try {
     if ($EAdminsGroup.Members -notcontains $oGMSA.DistinguishedName){
         Add-ADGroupMember $EAdminsGroup -Members $oGMSA -Server $ForestRootDomain
@@ -902,6 +1184,9 @@ try {
 catch{
     Write-Host "The group $($oGMSA.Name) is not added to the Enterprise Admins group. Please add the group manually" -ForegroundColor Yellow
 }
+
+# Deploy the management scripts and module to SYSVOL so scheduled tasks use replicated content
+# from a domain-accessible path. Existing module files are replaced by the bundled version.
 try{
     Copy-Item .\TierLevelComputerManagement.ps1 $ScriptTarget -ErrorAction Stop
     Copy-Item .\TierLevelUserManagement.ps1 $ScriptTarget -ErrorAction Stop
@@ -913,6 +1198,7 @@ try{
 catch{
     Write-Host "can not copy the script file to $ScriptTarget" -ForegroundColor Red
 }
+# Persist the final configuration consumed by the management scripts and module commands.
 try {
     $config | ConvertTo-Json | Out-File $ConfigFile 
 }
@@ -921,7 +1207,9 @@ catch {
     return
 }
 #region group policy
-#read the schedule task template from the current directory
+# Load the bundled GPO scheduled-task template, replace deployment placeholders, disable tasks that
+# are outside the selected scope, import the backup, and link the resulting GPO to the Domain
+# Controllers OU. Task UIDs are stable identifiers from the bundled ScheduledTasks.xml template.
 try {
 
     $ScheduleTaskRaw = Get-Content "$PWD\GPO\{$GPOBackupID}\DomainSysvol\GPO\Machine\Preferences\ScheduledTasks\ScheduledTasks.xml" -Raw -ErrorAction Stop
@@ -930,18 +1218,19 @@ try {
     [XML]$ScheduleTaskXML = $ScheduleTaskRaw
     switch ($scope){ 
         "Tier0" {
-            #Disable the Tier 0 server management tasks. We will only manage the Tier 1 server and user management tasks
+            # Tier 1 Computer Management task; not required by a Tier 0-only installation.
             $Task = $ScheduleTaskXML.ScheduledTasks.TaskV2 | Where-Object {$_.UID -eq '{D9E485BC-145A-47BC-B6C0-A3457662E26A}'}
             $Task.disabled = "1"  
           }
         "Tier1" {
-            #Disabling Tier 0 server management tasks. We will only manage the Tier 1 server and user management tasks
+            # Tier 0 Computer Management task; not required by a Tier 1-only installation.
             $Task = $ScheduleTaskXML.ScheduledTasks.TaskV2 | Where-Object {$_.UID -eq '{B1168190-7E2C-4177-9391-B1FFBCDF4774}'}
             $Task.disabled = "1"
 
           }
     }
     if ($GMSAName -eq ""){
+        # Change User Context task; it cannot run when no gMSA identity is configured.
         $Task = $ScheduleTaskXML.ScheduledTasks.TaskV2 | Where-Object {$_.UID -eq '{832DD5A2-5AA7-4F99-8663-0D4855E5DA56}'}
         $Task.disabled = "1" #disable the user context task if no GMSA is used. This task is used to manage the user context for the Tier 0 / Tier 1 users
     }
@@ -953,21 +1242,26 @@ try {
         $oGPO | New-GPLink -Target (Get-ADDomain).DomainControllersContainer -LinkEnabled Yes
         Write-Host "$GPOName Group Policy is linked to Domain Controllers OU" -ForegroundColor Yellow -BackgroundColor Blue
         Write-Host "Do not forget to enable user management tasks" -ForegroundColor Yellow
-        Write-Host "ONCE all Tier 0 server are members of the $($config.Tier0ComputerGroup) group AND have been rebooted you are ready to enable the 'Tier 0 User Management' Scheduled Task. Also, be sure to have a proper Breakglass account and process in place."
+        Write-Host "ONCE all Tier 0 computers are members of the $($config.Tier0ComputerGroup) group AND have been rebooted you are ready to enable the 'Tier 0 User Management' Scheduled Task. Also, be sure to have a proper Breakglass account and process in place."
     } else {
         if (!$LinkedTieringGP.Enabled){
             Write-Host "$GPOName group policy is linked to $((Get-ADDomain).DomainControllersContainer)" -ForegroundColor Yellow
-            Write-Host "Validate the status for the Schedule tasks before you enbaled the group policy link" -ForegroundColor Yellow
+            Write-Host "Validate the status of the scheduled tasks before you enable the Group Policy link" -ForegroundColor Yellow
         }
     }
-    #Enable Claim Support on Domain Controllers. 
-    #Write this setting to the default domain controller policy
+    # Kerberos authentication policies require claims, compound authentication, and armoring.
+    # Apply the KDC setting to domain controllers and the client setting to all domain members.
     Write-Host "Enable claim support on domain controllers and clients" -ForegroundColor Green
     Write-Host "Claim support is required to use Kerberos Authentication Policies" -ForegroundColor Green
     Write-Host "If you continue with 'y' the script will enable claim support on domain controllers and clients via group policy in the Default Domain Controller Policy" -ForegroundColor Yellow
     Write-Host "and the Default Domain Policy" -ForegroundColor Yellow
-    $ReadKey = Read-Host "Do you want to enable claim support on domain controllers and clients ([y]/n)"
-    if ($ReadKey -eq '' -or $ReadKey -like "y*"){
+    $EnableClaimSupport = if ($ObjectParameterMode) {
+        [bool](Get-InstallationParameterValue -InputObject $InstallationParameters -Name "EnableClaimSupport" -DefaultValue $true)
+    } else {
+        $ReadKey = Read-Host "Do you want to enable claim support on domain controllers and clients ([y]/n)"
+        $ReadKey -eq '' -or $ReadKey -like "y*"
+    }
+    if ($EnableClaimSupport){
         Write-Host "Enabling claim support on domain controllers and clients" -ForegroundColor Green
         foreach ($domain in $config.Domains){
             Write-Host "Enabling claim support in domain $domain" -ForegroundColor Green
@@ -993,5 +1287,24 @@ try {
 } 
 catch{
     Write-Host $error[0]
+    $InstallationStatus = "Failed"
 }
-#endregion 
+#endregion
+if ($InstallationStatus -ne "Failed") {
+    $InstallationStatus = "Completed"
+}
+}
+finally {
+    # Always restore the caller's verbosity preference and finalize the transcript. Early returns
+    # retain the Incomplete status, while handled GPO failures are explicitly marked as Failed.
+    $InstallationEndTime = Get-Date
+    $InstallationDuration = $InstallationEndTime - $InstallationStartTime
+    $VerbosePreference = $PreviousVerbosePreference
+    Write-Host "Installation status: $InstallationStatus" -ForegroundColor Cyan
+    Write-Host "Installation finished: $($InstallationEndTime.ToString('yyyy-MM-dd HH:mm:ss.fff K'))" -ForegroundColor Cyan
+    Write-Host "Installation duration: $($InstallationDuration.ToString())" -ForegroundColor Cyan
+    Write-Host "Installation log: $InstallationLogFile" -ForegroundColor Cyan
+    if ($TranscriptStarted) {
+        Stop-Transcript | Out-Null
+    }
+}

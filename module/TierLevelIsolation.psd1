@@ -24,7 +24,7 @@
     RootModule = '0.1\TierLevelIsolation.psm1'
     
     # Version number of this module.
-    ModuleVersion = '0.1.20260825.2'
+    ModuleVersion = '0.1.20260828.2'
     
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -45,7 +45,7 @@
     Description = 'This module provides configuration methods for the Kerberos Authentication Policy based Tier Level isolation'
     
     # Minimum version of the PowerShell engine required by this module
-    # PowerShellVersion = ''
+    PowerShellVersion = '5.1'
     
     # Name of the PowerShell host required by this module
     # PowerShellHostName = ''
@@ -145,7 +145,7 @@
         # IconUri = ''
 
         # ReleaseNotes of this module
-        ReleaseNotes = 'Initial release of TierLevelIsolation module providing configuration methods for Kerberos Authentication Policy based Tier Level isolation'
+        ReleaseNotes = 'Added complete module-level, function-level, and maintainer-focused inline documentation for configuration, OU paths, groups, policies, domains, scope, Protected Users, cleanup, and logging commands.'
         
         RequireLicenseAcceptance = $false
 

@@ -89,6 +89,8 @@ possibility of such damages
         Set adminCount to 1 on nested groups during Tier 0 group processing
     Version 0.2.20260825.4
         Fixed DNS server resolution for nested groups
+    Version 0.2.20260828.1
+        Read adminCount explicitly before updating nested Tier 0 groups
 
     exist codes:
         0x3E8 - The script terminated with a unexpected error
@@ -418,13 +420,16 @@ function validateAndRemoveUser{
                     Write-Log -Message "Cannot resolve the DNS domain for nested group $($member.DistinguishedName)" -Severity Error -EventID 2213
                     continue
                 }
-                if ($SetNestedGroupAdminCount -and $member.adminCount -ne 1) {
+                if ($SetNestedGroupAdminCount) {
                     try {
-                        Set-ADGroup -Identity $member.DistinguishedName -Replace @{adminCount=1} -Server $MemberDNSroot -ErrorAction Stop
-                        Write-Log -Message "Set adminCount to 1 on nested Tier 0 group $($member.DistinguishedName)" -Severity Information -EventID 2211
+                        $CurrentGroup = Get-ADGroup -Identity $member.DistinguishedName -Properties adminCount -Server $MemberDNSroot -ErrorAction Stop
+                        if ($CurrentGroup.adminCount -ne 1) {
+                            Set-ADGroup -Identity $CurrentGroup.DistinguishedName -Replace @{adminCount=1} -Server $MemberDNSroot -ErrorAction Stop
+                            Write-Log -Message "Set adminCount to 1 on nested Tier 0 group $($CurrentGroup.DistinguishedName)" -Severity Information -EventID 2211
+                        }
                     }
                     catch {
-                        Write-Log -Message "Cannot set adminCount to 1 on nested Tier 0 group $($member.DistinguishedName): $($_.Exception.Message)" -Severity Error -EventID 2212
+                        Write-Log -Message "Cannot read or set adminCount on nested Tier 0 group $($member.DistinguishedName): $($_.Exception.Message)" -Severity Error -EventID 2212
                     }
                 }
                 validateAndRemoveUser -SID $member.ObjectSid.Value -DomainDNSName $MemberDNSroot -PrivilegedOU $PrivilegedOU -ServiceAccountPath $ServiceAccountPath -SetNestedGroupAdminCount:$SetNestedGroupAdminCount
@@ -546,7 +551,7 @@ function RemoveUserFromAdditionalGroups{
 # Main program starts here
 ##############################################################################################################################
 #script Version 
-$ScriptVersion = "0.2.20260825.4"
+$ScriptVersion = "0.2.20260828.1"
 #Validate and create event log source if required
 #region Script Constants and Configuration Variables
 
