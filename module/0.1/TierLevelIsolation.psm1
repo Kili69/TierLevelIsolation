@@ -17,9 +17,47 @@ inability to use the sample scripts or documentation, even if Microsoft has been
 possibility of such damages
 
 Module Name: TierLevelIsolation
-Module Version: 0.1.20250327
-Module GUID: 0b1c8d3e-4f2a-4b6c-9d5f-7a1b8e2c3d4e
-Module Description: This module provides functions to manage theconfiguraiton  TierLevelIsolation 
+Module Version: 0.1.20260828.2
+Module GUID: 32c51271-3735-4b61-b80f-7284dafe6c77
+Module Description: Manages the shared configuration for Kerberos Authentication Policy based
+Tier Level isolation in an Active Directory forest.
+
+Architecture:
+    The module stores its configuration as JSON in the forest-root domain SYSVOL path
+    \\<DNSRoot>\SYSVOL\<DNSRoot>\scripts\TierLevelIsolation.config. Exported commands read,
+    validate, modify, and persist individual configuration properties. Active Directory is the
+    source of truth when domains, groups, organizational units, and authentication policies are
+    resolved.
+
+Configuration properties:
+    Tier0ComputerPath / Tier1ComputerPath
+        Organizational units containing managed computers.
+    Tier0ComputerGroup / Tier1ComputerGroup
+        Server groups referenced by Kerberos authentication policies.
+    Tier0ServiceAccountPath / Tier1ServiceAccountPath
+        Organizational units containing managed service accounts.
+    Tier0UsersPath / Tier1UsersPath
+        Organizational units containing managed administrative users.
+    T0KerbAuthPolName / T1KerbAuthPolName
+        Kerberos authentication policy names assigned to each tier.
+    Domains
+        Forest domains included in management operations.
+    scope
+        Enabled scope: Tier-0, Tier-1, or All-Tiers.
+    ProtectedUsers
+        Tiers whose users are maintained in the Protected Users group.
+    PrivilegedGroupsCleanUp
+        Controls cleanup of incompatible privileged-group memberships.
+    LogPath
+        Optional runtime log directory used by the management scripts.
+    Tier0Groups / Tier1Groups
+        Additional managed groups stored by immutable Active Directory SID.
+
+Prerequisites and side effects:
+    - Windows PowerShell 5.1 or later and the ActiveDirectory module.
+    - Importing the module queries the current Active Directory domain.
+    - The default configuration path requires read/write access to SYSVOL.
+    - Set, Add, and Remove commands immediately persist the complete JSON configuration.
 
 Version History:
     0.1.20250315 - Initial version
@@ -37,30 +75,21 @@ Version History:
     Version 0.2.20251223
                 - Added validation to prevent adding a group to Tier1 if it already exists in Tier0.
                 - Supported values in Add-TierLevelIsolationGroup are now in NetBIOS format (DOMAIN\GroupName), UPN (GroupName@DNSName) and canonical name (DNSName/GroupName).
+    Version 0.1.20260825.1
+                - Fixed persistence of the debug log path.
+    Version 0.1.20260825.2
+                - Store additional Tier 0 and Tier 1 groups by SID.
+                - Added a command to display configured additional groups.
+    Version 0.1.20260828.1
+                - Added complete module-level and function-level code documentation.
+    Version 0.1.20260828.2
+                - Added maintainer-focused inline documentation for implementation logic.
 
 #>
 
-#region Module Metadata
-# Module Name: TierLevelIsolation   
-
-# Module Prerequisites: PowerShell 5.1 or higher, Active Directory module for Windows PowerShell
-# Module Installation: Import-Module TierLevelIsolation.psd1
-# Module Usage:
-#   Get-TierLevelIsolationConfiguration returns the current configuration of TierLevelIsolation
-#   Add-TierLevelIsolationComputerPath adds a computer OU path to the specified tier level
-#   Remove-TierLevelIsolationComputerPath removes a computer OU path from the specified tier level
-#   Set-TierLevelIsolationComputerGroup sets the computer group for the specified tier level
-#   Add-TierLevelIsolationServiceAccountPath adds a service account OU path to the specified tier level
-#   Remove-TierLevelIsolationServiceAccountPath removes a service account OU path from the specified tier level
-#   Add-TierLevelIsolationUserPath adds a user OU path to the specified tier level
-#   Remove-TierLevelIsolationUserPath removes a user OU path from the specified tier level
-#   Set-TierLevelIsolationKerberosAuthenticationPolicy sets the Kerberos Authentication Policy for the specified tier level
-#   Add-TierLevelIsolationDomain adds a domain to the Tier Level Isolation configuration
-#   Remove-TierLevelIsolationDomain removes a domain from the Tier Level Isolation configuration
-#   Set-TierLevelIsolationScope sets the current scope of the Tier Level Isolation configuration
-#   Set-TierLevelPrivilegedGroupsCleanUpState sets the state of privileged groups clean up in the Tier Level Isolation configuration
-#   Add-TierlevelIsolationGroup adds a group to the specified tier level
-#   Remove-TierlevelIsolationGroup removes a group from the specified tier level
+#region Module initialization
+# Resolve the forest-root DNS name at import time and derive the default shared configuration file.
+# Individual functions accept configFile to support testing or an alternate configuration location.
 #endregion
 
 #region Global variables
@@ -78,51 +107,50 @@ $global:configFile = "\\$DNSRoot\SYSVOL\$DNSRoot\scripts\TierLevelIsolation.conf
 #   The distinguished name to convert. This can be a full DN or just the domain part (e.g. "DC=contoso,DC=com").
 #.EXAMPLE
 #   ConvertFrom-DN2Dns -DistinguishedName "CN=Users,DC=contoso,DC=com"
-#    Returns "contoso.com"
-#.EXAMPLE
-#   ConvertFrom-DN2Dns -DistinguishedName "DC=contoso,DC=com"
-#    Returns "contoso.com"
+#   Returns "contoso.com".
+#.OUTPUTS
+#   System.String. DNS name of the matching Active Directory naming context, or $null when the
+#   distinguished name cannot be resolved.
 #.NOTES
-#   This function requires the Active Directory module for Windows PowerShell.
-#   It is used to convert a distinguished name to a DNS domain name for use in other functions.
-#   The function uses the Get-ADObject cmdlet to retrieve the DNS root from the Active Directory forest.
-#   The function uses a regular expression to extract the domain components from the distinguished name.
-#   The function returns the DNS domain name as a string.
-#   If the distinguished name does not contain a valid domain component, the function returns $null.
-#   If the distinguished name is empty or null, the function returns $null.
-#   If the distinguished name does not match the expected format, the function returns $null.
-#   If the distinguished name is not found in Active Directory, the function returns $null.
+#   Internal helper. Requires access to the forest configuration partition.
 function ConvertFrom-DN2Dns {
     param(
         [Parameter(Mandatory= $true, ValueFromPipeline)]
         [string]$DistinguishedName
     )
+    # Keep only the DC components, then resolve the matching naming-context cross-reference.
     $DistinguishedName = [regex]::Match($DistinguishedName,"(dc=[^,]+,)*dc=.+$",[System.Text.RegularExpressions.RegexOptions]::IgnoreCase).Value
     return (Get-ADObject -Filter "nCname -eq '$DistinguishedName'" -Searchbase (Get-ADForest).PartitionsContainer -Properties dnsroot).DnsRoot
 }
 
 #.SYNOPSIS
-#   Reading the tier level isolation configuration 
+#   Reads the Tier Level Isolation configuration.
 #.DESCRIPTION
-#   This function reads the tier level isolation configuration from the specified file. If the file is not specified, the default location is used.
+#   Creates a configuration object with every supported property and its safe default, then merges
+#   values from the JSON configuration file when it exists. This permits older configuration files
+#   to gain newly introduced properties without a migration step. Legacy scope values Tier0 and
+#   Tier1 are normalized to Tier-0 and Tier-1 in the returned object.
 #.PARAMETER configFile
-#   The path to the configuration file. If not specified, the default location is used.
-#   The default location is: \\$DNSRoot\SYSVOL\$DNSRoot\scripts\TierLevelIsolation.config
+#   JSON configuration file to read. The default is the TierLevelIsolation.config file in the
+#   forest-root domain SYSVOL scripts directory.
 #.EXAMPLE
 #   Get-TierLevelIsolationConfiguration
-#    Read the configuration from the default location.
+#   Returns the shared forest configuration using the default SYSVOL location.
 #.EXAMPLE
-#   Get-TierLevelIsolationConfiguration -configFile "C:\TierLevelIsolation.config"
-#    Read the configuration from the specified file.  
+#   Get-TierLevelIsolationConfiguration -configFile "C:\Temp\TierLevelIsolation.config"
+#   Returns a configuration from an alternate file, which is useful for testing.
+#.OUTPUTS
+#   System.Management.Automation.PSCustomObject. Contains all documented module configuration
+#   properties, including defaults for properties absent from the JSON file.
 #.NOTES
-#   This function requires the Active Directory module for Windows PowerShell.
-#   It is used to read the tier level isolation configuration from a JSON file.
+#   The function does not create a missing file. Use a configuration-changing command to persist
+#   the returned default structure.
 function Get-TierLevelIsolationConfiguration {
     param (
         [Parameter(Mandatory = $false, Position = 0)]
         [string]$configFile = $global:configFile
     )
-    #Inital configuration object
+    # Build the complete current schema first. This supplies defaults for new or older files.
     $config = New-Object psobject
     $config | Add-Member -MemberType NoteProperty -Name Tier0ComputerPath       -Value @()
     $config | Add-Member -MemberType NoteProperty -Name Tier1ComputerPath       -Value @()
@@ -139,20 +167,20 @@ function Get-TierLevelIsolationConfiguration {
     $config | Add-Member -MemberType NoteProperty -Name ProtectedUsers          -Value @()
     $config | Add-Member -MemberType NoteProperty -Name PrivilegedGroupsCleanUp -Value $false
     $config | Add-Member -MemberType NoteProperty -Name LogPath                 -Value ""
-    $config | Add-Member -MemberType NoteProperty -Name Tier0Groups              -Value @()
-    $config | Add-Member -MemberType NoteProperty -Name Tier1Groups              -Value @()
-    # Check if the config file exists
+    $config | Add-Member -MemberType NoteProperty -Name Tier0Groups             -Value @()
+    $config | Add-Member -MemberType NoteProperty -Name Tier1Groups             -Value @()
+
+    # Merge only recognized properties so unknown JSON data cannot alter the object shape.
     if (Test-Path $configFile) {
         $CurrentConfig = Get-Content -Path $configFile -Raw | ConvertFrom-Json
-        
         foreach ($configItem in $config.PSObject.Properties) {
             if ($null -ne $CurrentConfig.PSObject.Properties[$configItem.Name]) {
-                    $config.PSObject.Properties[$configItem.Name].Value = $CurrentConfig.PSObject.Properties[$configItem.Name].Value
+                $config.PSObject.Properties[$configItem.Name].Value = $CurrentConfig.PSObject.Properties[$configItem.Name].Value
             }
         }
-        
-    } 
-    #added a fix to ensure the scope value is correct
+    }
+
+    # Normalize legacy internal scope names to the values consumed by current management scripts.
     if ($config.scope -eq "Tier0") {
         $config.scope = "Tier-0"
     } elseif ($config.scope -eq "Tier1") {
@@ -160,23 +188,25 @@ function Get-TierLevelIsolationConfiguration {
     }
     return $config
 }
+
 #.SYNOPSIS
-#   Writing the tier level isolation configuration
+#   Persists the complete Tier Level Isolation configuration.
 #.DESCRIPTION
-#   This function writes the tier level isolation configuration to the specified file. If the file is not specified, the default location is used.  
+#   Serializes the supplied configuration object as JSON and overwrites the target configuration
+#   file. All module commands that modify configuration call this internal persistence function.
 #.PARAMETER configFile
-#   The path to the configuration file. If not specified, the default location is used.
-#   The default location is: \\$DNSRoot\SYSVOL\$DNSRoot\scripts\TierLevelIsolation.config
+#   Destination JSON file. The default is the shared configuration in SYSVOL.
 #.PARAMETER config
-#   The configuration object to write to the file.  
+#   Configuration object to serialize. It is normally obtained from
+#   Get-TierLevelIsolationConfiguration.
 #.EXAMPLE
-#   Set-TierLevelIsolationConfiguration -configFile "C:\TierLevelIsolation.config" -config $config
-#    Write the configuration to the specified file.
-#.EXAMPLE
-#   Set-TierLevelIsolationConfiguration -config $config
-#    Write the configuration to the default location.
+#   $Configuration = Get-TierLevelIsolationConfiguration
+#   Set-TierLevelIsolationConfiguration -config $Configuration
+#   Writes the configuration back to the default file.
+#.OUTPUTS
+#   None.
 #.NOTES
-#   This function requires the Active Directory module for Windows PowerShell.
+#   Internal helper. Write failures are reported to the host and are not rethrown.
 function Set-TierLevelIsolationConfiguration {
     param (
         [Parameter(Mandatory = $false, Position = 0)]
@@ -185,29 +215,34 @@ function Set-TierLevelIsolationConfiguration {
         $config
     )
     try {
+        # Persist one complete snapshot rather than updating individual JSON fragments.
         $config | ConvertTo-Json | Set-Content -Path $configFile -Force
     } catch {
         Write-Host "Failed to write configuration to file: $configFile $($Error[0])" -ForegroundColor Red
     }
 }
+
 #.SYNOPSIS
-#   Adding a computer path to the specified tier level
+#   Adds a computer organizational-unit path to a tier.
 #.DESCRIPTION
-#   This function adds a computer path to the specified tier level in the configuration.
+#   Resolves a full distinguished name against its domain or a relative OU path against the current
+#   domain. The path is stored once in the selected tier's computer-path collection. A missing OU
+#   produces a warning but is still stored so installation workflows can define OUs before creating
+#   them.
 #.PARAMETER TierLevel
-#   The tier level to add the computer path to. Valid values are "Tier0" and "Tier1".
-#.PARAMETER Path
-#   The distinguishedname to the computer organizational unit to add. The can can be full qualified or just the OU part.
-#   If the path is not a valid OU, the function will return a warning.
+#   Target tier. Valid values are Tier0 and Tier1.
+#.PARAMETER OU
+#   Relative OU path or complete distinguished name to add.
 #.PARAMETER configFile
-#   The path to the configuration file. If not specified, the default location is used.
-#   The default location is: \\$DNSRoot\SYSVOL\$DNSRoot\scripts\TierLevelIsolation.config
+#   Configuration file to update. Defaults to the shared SYSVOL configuration.
 #.EXAMPLE
-#   Add-TierLevelTierComputerPath -TierLevel "Tier0" -Path "OU=Computers,OU=Tier0,OU=Admin,DC=contoso,DC=com"
-#    Add the computer path to the Tier0 tier level.
+#   Add-TierLevelIsolationComputerPath -TierLevel Tier0 -OU "OU=Server,OU=Tier 0,OU=Admin"
+#   Adds a current-domain relative Tier 0 computer path.
 #.EXAMPLE
-#   Add-TierLevelTierComputerPath -TierLevel "Tier1" -Path "OU=Computers,OU=Tier1,OU=Admin,DC=contoso,DC=com" 
-#    Add the computer path to the Tier1 tier level and ignore the warning if the path does not exist.   
+#   Add-TierLevelIsolationComputerPath -TierLevel Tier1 -OU "OU=Server,OU=Tier 1,DC=emea,DC=contoso,DC=com"
+#   Adds a fully qualified Tier 1 computer path.
+#.OUTPUTS
+#   None.
 function Add-TierLevelIsolationComputerPath {
     param (
         [Parameter(Mandatory = $true, Position = 0)]
@@ -218,8 +253,9 @@ function Add-TierLevelIsolationComputerPath {
         [Parameter(Mandatory = $false, Position = 2)]
         [string]$configFile = $global:configFile
     )
-    #reading the configuration file
     $config = Get-TierLevelIsolationConfiguration $configFile
+
+    # Full DNs are resolved against their own domain; relative paths use the current domain.
     if ($OU -like "*DC=*"){
         $DNSDomain = ConvertFrom-DN2Dns -DistinguishedName $OU
         if ($null -eq $DNSDomain){
@@ -228,48 +264,272 @@ function Add-TierLevelIsolationComputerPath {
         }
         $oOU = Get-ADOrganizationalUnit -Filter "DistinguishedName -eq '$OU'" -ErrorAction SilentlyContinue -Server $DnsDomain
     } else {
-        $oOU = Get-ADOrganizationalUnit -Filter "DistinguishedName -like '$OU,$((Get-ADDomain).DistinguishedName)'" -ErrorAction SilentlyContinue 
+        $oOU = Get-ADOrganizationalUnit -Filter "DistinguishedName -like '$OU,$((Get-ADDomain).DistinguishedName)'" -ErrorAction SilentlyContinue
     }
     if ($null -eq $oOU ) {
         Write-Host "The specified path does not exist: $OU" -ForegroundColor Yellow
     }
+
+    # Append only new values to keep repeated setup runs idempotent.
     switch ($TierLevel) {
-        "Tier0" { 
-            if ($null -eq $config.Tier0ComputerPath) {
-                $config.Tier0ComputerPath = @()
-            }
-            if ($config.Tier0ComputerPath -notcontains $OU) {
-                $config.Tier0ComputerPath += $OU
-            }
+        "Tier0" {
+            if ($null -eq $config.Tier0ComputerPath) { $config.Tier0ComputerPath = @() }
+            if ($config.Tier0ComputerPath -notcontains $OU) { $config.Tier0ComputerPath += $OU }
             break
         }
         "Tier1" {
-            if ($null -eq $config.Tier1ComputerPath ) {
-                $config.Tier1ComputerPath = @()
-            }
-            if ($config.Tier1ComputerPath -notcontains $OU) {
-                $config.Tier1ComputerPath += $OU
-            }
+            if ($null -eq $config.Tier1ComputerPath) { $config.Tier1ComputerPath = @() }
+            if ($config.Tier1ComputerPath -notcontains $OU) { $config.Tier1ComputerPath += $OU }
             break
         }
     }
     Set-TierLevelIsolationConfiguration -configFile $configFile -config $config
-    return
+}
+
+#.SYNOPSIS
+#   Resolves an Active Directory group identity and domain.
+#.DESCRIPTION
+#   Accepts a SID, DOMAIN\GroupName, GroupName@dns.name, dns.name/GroupName, or an unqualified group
+#   name. SID lookups search configured domains and the forest-root domain. Other formats determine
+#   a domain directly; unqualified names use the current domain.
+#.PARAMETER Identity
+#   Group SID or supported name format to resolve.
+#.PARAMETER Config
+#   Tier Level Isolation configuration whose Domains property supplies the SID search scope.
+#.EXAMPLE
+#   Resolve-TierLevelIsolationGroup -Identity "CONTOSO\Helpdesk" -Config $Configuration
+#   Resolves the Helpdesk group and returns both the AD group and DNS domain.
+#.OUTPUTS
+#   System.Management.Automation.PSCustomObject with Group and Domain properties.
+#.NOTES
+#   Internal helper. Throws when the group or domain cannot be resolved.
+function Resolve-TierLevelIsolationGroup {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$Identity,
+        [Parameter(Mandatory = $true)]
+        $Config
+    )
+    # SIDs do not encode a DNS domain. Search configured domains and finally the forest root.
+    if ($Identity -match '^S-1-(?:\d+-){1,14}\d+$') {
+        $Domains = @($Config.Domains) + @($Global:DnsRoot) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
+        foreach ($Domain in $Domains) {
+            try {
+                $Group = Get-ADGroup -Identity $Identity -Server $Domain -ErrorAction Stop
+                return [pscustomobject]@{ Group = $Group; Domain = $Domain }
+            } catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] {
+                continue
+            } catch [Microsoft.ActiveDirectory.Management.ADServerDownException] {
+                continue
+            }
+        }
+        throw "The specified group SID '$Identity' could not be found in a configured domain."
+    }
+
+    # Parse supported qualified-name formats and derive the DNS domain used for the lookup.
+    $GroupIdentity = $Identity
+    switch -regex ($Identity) {
+        '^(.+?)\\(.+)$' {
+            $DomainNetBios = $matches[1]
+            $GroupIdentity = $matches[2]
+            $DomainDNSName = (Get-ADObject -SearchBase "CN=Partitions,$((Get-ADRootDSE).configurationNamingContext)" -LDAPFilter "(&(objectClass=crossRef)(nETBIOSName=$DomainNetBios))" -Properties dnsRoot -ErrorAction Stop).dnsRoot[0]
+            break
+        }
+        '^(.+)@(.+)$' { $GroupIdentity = $matches[1]; $DomainDNSName = $matches[2]; break }
+        '^([^/]+)/(.+)$' { $DomainDNSName = $matches[1]; $GroupIdentity = $matches[2]; break }
+        default { $DomainDNSName = $Global:DnsRoot }
+    }
+
+    # Return the AD object together with its resolved domain for consistent caller output.
+    $Group = Get-ADGroup -Identity $GroupIdentity -Server $DomainDNSName -ErrorAction Stop
+    return [pscustomobject]@{ Group = $Group; Domain = $DomainDNSName }
+}
+
+#.SYNOPSIS
+#   Adds an additional Active Directory group to a tier.
+#.DESCRIPTION
+#   Resolves the supplied group and stores its immutable SID in Tier0Groups or Tier1Groups. A group
+#   cannot be assigned to both tiers. Repeated additions are idempotent.
+#.PARAMETER TierLevel
+#   Target tier. Valid values are Tier0 and Tier1.
+#.PARAMETER GroupIdentity
+#   Group SID, DOMAIN\GroupName, GroupName@dns.name, dns.name/GroupName, or unqualified group name.
+#   Accepts pipeline input and the aliases GroupName and GroupSID.
+#.PARAMETER configFile
+#   Configuration file to update. Defaults to the shared SYSVOL configuration.
+#.EXAMPLE
+#   Add-TierLevelIsolationGroup -TierLevel Tier0 -GroupIdentity "CONTOSO\Domain Admins"
+#   Resolves the group and stores its SID in the Tier 0 group collection.
+#.EXAMPLE
+#   "S-1-5-21-1000-1000-1000-1234" | Add-TierLevelIsolationGroup -TierLevel Tier1
+#   Adds a group by SID through the pipeline.
+#.OUTPUTS
+#   None.
+#.NOTES
+#   Resolution or cross-tier assignment failures are reported to the host and not rethrown.
+function Add-TierLevelIsolationGroup {
+    param (
+        [Parameter(Mandatory = $true, Position = 0)]
+        [ValidateSet("Tier0", "Tier1")]
+        [string]$TierLevel,
+        [Parameter(Mandatory = $true, Position = 1, ValueFromPipeline = $true)]
+        [Alias("GroupName", "GroupSID")]
+        [string]$GroupIdentity,
+        [Parameter(Mandatory = $false, Position = 2)]
+        [string]$configFile = $global:configFile
+    )
+    process {
+        try {
+            # Resolve names once and persist the immutable SID rather than a renameable group name.
+            $config = Get-TierLevelIsolationConfiguration $configFile
+            $ResolvedGroup = Resolve-TierLevelIsolationGroup -Identity $GroupIdentity -Config $config
+            $GroupSID = $ResolvedGroup.Group.SID.Value
+            $TargetProperty = "${TierLevel}Groups"
+            $OtherProperty = if ($TierLevel -eq "Tier0") { "Tier1Groups" } else { "Tier0Groups" }
+
+            # A group must not receive conflicting tier assignments.
+            if ($config.$OtherProperty -contains $GroupSID) {
+                Write-Host "The group $($ResolvedGroup.Group.Name) ($GroupSID) is already assigned to the other tier." -ForegroundColor Red
+                return
+            }
+            if ($config.$TargetProperty -notcontains $GroupSID) {
+                # Re-wrap the property as an array because single-item JSON arrays can deserialize variably.
+                $config.$TargetProperty = @($config.$TargetProperty) + $GroupSID
+                Set-TierLevelIsolationConfiguration -configFile $configFile -config $config
+            }
+        }
+        catch {
+            Write-Host "The group '$GroupIdentity' could not be added. $($_.Exception.Message)" -ForegroundColor Red
+        }
+    }
+}
+
+#.SYNOPSIS
+#   Gets additional groups configured for one or both tiers.
+#.DESCRIPTION
+#   Reads stored group SIDs and attempts to resolve each SID in the configured domains. Unresolvable
+#   SIDs are retained in the output with Resolved set to $false so stale entries remain visible.
+#.PARAMETER TierLevel
+#   Optional tier filter. Valid values are Tier0 and Tier1. Omit it to return both tiers.
+#.PARAMETER configFile
+#   Configuration file to read. Defaults to the shared SYSVOL configuration.
+#.EXAMPLE
+#   Get-TierLevelIsolationGroup
+#   Returns configured additional groups for Tier 0 and Tier 1.
+#.EXAMPLE
+#   Get-TierLevelIsolationGroup -TierLevel Tier0 | Where-Object Resolved
+#   Returns only successfully resolved Tier 0 groups.
+#.OUTPUTS
+#   System.Management.Automation.PSCustomObject with TierLevel, SID, Name, SamAccountName, Domain,
+#   and Resolved properties.
+function Get-TierLevelIsolationGroup {
+    param (
+        [Parameter(Mandatory = $false, Position = 0)]
+        [ValidateSet("Tier0", "Tier1")]
+        [string]$TierLevel,
+        [Parameter(Mandatory = $false, Position = 1)]
+        [string]$configFile = $global:configFile
+    )
+    $config = Get-TierLevelIsolationConfiguration $configFile
+    # An omitted tier deliberately expands to both configured group collections.
+    $TierLevels = if ($TierLevel) { @($TierLevel) } else { @("Tier0", "Tier1") }
+    foreach ($CurrentTier in $TierLevels) {
+        foreach ($GroupSID in @($config."${CurrentTier}Groups")) {
+            try {
+                # Enrich the stored SID with current directory attributes when it still resolves.
+                $ResolvedGroup = Resolve-TierLevelIsolationGroup -Identity $GroupSID -Config $config
+                [pscustomobject]@{
+                    TierLevel = $CurrentTier
+                    SID = $GroupSID
+                    Name = $ResolvedGroup.Group.Name
+                    SamAccountName = $ResolvedGroup.Group.SamAccountName
+                    Domain = $ResolvedGroup.Domain
+                    Resolved = $true
+                }
+            }
+            catch {
+                # Preserve stale SIDs in output so administrators can identify and remove them.
+                [pscustomobject]@{
+                    TierLevel = $CurrentTier
+                    SID = $GroupSID
+                    Name = $null
+                    SamAccountName = $null
+                    Domain = $null
+                    Resolved = $false
+                }
+            }
+        }
+    }
+}
+
+#.SYNOPSIS
+#   Removes an additional Active Directory group from a tier.
+#.DESCRIPTION
+#   Accepts a stored SID or any group-name format supported by Add-TierLevelIsolationGroup. Names
+#   are resolved to a SID before the SID is removed from the selected tier collection.
+#.PARAMETER TierLevel
+#   Tier from which to remove the group. Valid values are Tier0 and Tier1.
+#.PARAMETER GroupIdentity
+#   Group SID or supported group name. Accepts pipeline input and the aliases GroupName and GroupSID.
+#.PARAMETER configFile
+#   Configuration file to update. Defaults to the shared SYSVOL configuration.
+#.EXAMPLE
+#   Remove-TierLevelIsolationGroup -TierLevel Tier1 -GroupIdentity "helpdesk@contoso.com"
+#   Removes the resolved group SID from Tier 1.
+#.EXAMPLE
+#   "S-1-5-21-1000-1000-1000-1234" | Remove-TierLevelIsolationGroup -TierLevel Tier0
+#   Removes a stored Tier 0 group directly by SID.
+#.OUTPUTS
+#   None.
+function Remove-TierLevelIsolationGroup {
+    param (
+        [Parameter(Mandatory = $true, Position = 0)]
+        [ValidateSet("Tier0", "Tier1")]
+        [string]$TierLevel,
+        [Parameter(Mandatory = $true, Position = 1, ValueFromPipeline = $true)]
+        [Alias("GroupName", "GroupSID")]
+        [string]$GroupIdentity,
+        [Parameter(Mandatory = $false, Position = 2)]
+        [string]$configFile = $global:configFile
+    )
+    process {
+        $config = Get-TierLevelIsolationConfiguration $configFile
+        $GroupSID = $GroupIdentity
+
+        # Convert supported name formats to the same SID representation used by the configuration.
+        if ($GroupIdentity -notmatch '^S-1-(?:\d+-){1,14}\d+$') {
+            try {
+                $GroupSID = (Resolve-TierLevelIsolationGroup -Identity $GroupIdentity -Config $config).Group.SID.Value
+            }
+            catch {
+                Write-Host "The group '$GroupIdentity' could not be resolved. $($_.Exception.Message)" -ForegroundColor Red
+                return
+            }
+        }
+        $TargetProperty = "${TierLevel}Groups"
+        if ($config.$TargetProperty -contains $GroupSID) {
+            # Filter into a new array to retain predictable JSON array serialization.
+            $config.$TargetProperty = @($config.$TargetProperty | Where-Object { $_ -ne $GroupSID })
+            Set-TierLevelIsolationConfiguration -configFile $configFile -config $config
+        }
+    }
 }
 #.SYNOPSIS
-#   Removing a computer path from the specified tier level
+#   Removes a computer organizational-unit path from a tier.
 #.DESCRIPTION
-#   This function removes a computer path from the specified tier level in the configuration.
+#   Removes an exact relative or fully qualified OU path from the selected tier's computer-path
+#   collection. No Active Directory organizational unit is deleted.
 #.PARAMETER TierLevel
-#   The tier level to remove the computer path from. Valid values are "Tier0" and "Tier1".
-#.PARAMETER Path
-#   The distinguishedname to the computer organizational unit to remove. The can can be full qualified or just the OU part.
+#   Tier from which to remove the path. Valid values are Tier0 and Tier1.
+#.PARAMETER OU
+#   Exact OU path value stored in the configuration.
 #.PARAMETER configFile
-#   The path to the configuration file. If not specified, the default location is used.
-#   The default location is: \\$DNSRoot\SYSVOL\$DNSRoot\scripts\TierLevelIsolation.config
-# .EXAMPLE
-#   Remove-TierLevelIsolationComputerPath -TierLevel "Tier0" -Path "OU=Computers,OU=Tier0,OU=Admin,DC=contoso,DC=com"
-#    Remove the computer path from the Tier0 tier level.
+#   Configuration file to update. Defaults to the shared SYSVOL configuration.
+#.EXAMPLE
+#   Remove-TierLevelIsolationComputerPath -TierLevel Tier0 -OU "OU=Server,OU=Tier 0,OU=Admin"
+#   Removes the matching configured path from Tier 0.
+#.OUTPUTS
+#   None.
 function Remove-TierLevelIsolationComputerPath {
     param (
         [Parameter(Mandatory = $true, Position = 0)]
@@ -280,7 +540,7 @@ function Remove-TierLevelIsolationComputerPath {
         [Parameter(Mandatory = $false, Position = 2)]
         [string]$configFile = $global:configFile
     )
-    
+    # Remove only an exact configured value; this command never changes the directory OU itself.
     $config = Get-TierLevelIsolationConfiguration $configFile 
     switch ($TierLevel) {
         "Tier0" { 
@@ -306,22 +566,25 @@ function Remove-TierLevelIsolationComputerPath {
     return
 }
 #.SYNOPSIS
-#   Adding a user path to the specified tier level
+#   Adds a user organizational-unit path to a tier.
 #.DESCRIPTION
-#   This function adds a user path to the specified tier level in the configuration.
+#   Validates a relative path in the current domain or a full distinguished name in its specified
+#   domain, then stores it once in the selected tier's user-path collection. A missing OU produces
+#   a warning but is still stored for installation workflows that create it later.
 #.PARAMETER TierLevel
-#   The tier level to add the user path to. Valid values are "Tier0" and "Tier1".
-#.PARAMETER Path
-#   The distinguishedname to the user organizational unit to add. The can can be full qualified or just the OU part.
-#   If the path is not a valid OU, the function will return a warning.
+#   Target tier. Valid values are Tier0 and Tier1.
+#.PARAMETER OU
+#   Relative OU path or complete distinguished name to add.
 #.PARAMETER configFile
-#   The path to the configuration file. If not specified, the default location is used.
-#   The default location is: \\$DNSRoot\SYSVOL\$DNSRoot\scripts\TierLevelIsolation.config
-# .EXAMPLE
-#   Add-TierLevelUserPath -TierLevel "Tier0" -Path "OU=Users,OU=Tier0,OU=Admin"
-#    Add the user path to the Tier0 tier level.
-# .EXAMPLE  
-#   Add-TierLevelUserPath -TierLevel "Tier1" -Path "OU=Users,OU=Tier1,OU=Admin,DC=contoso,DC=com" 
+#   Configuration file to update. Defaults to the shared SYSVOL configuration.
+#.EXAMPLE
+#   Add-TierLevelIsolationUserPath -TierLevel Tier0 -OU "OU=Admins,OU=Tier 0,OU=Admin"
+#   Adds a current-domain relative user path to Tier 0.
+#.EXAMPLE
+#   Add-TierLevelIsolationUserPath -TierLevel Tier1 -OU "OU=Admins,OU=Tier 1,DC=emea,DC=contoso,DC=com"
+#   Adds a fully qualified user path to Tier 1.
+#.OUTPUTS
+#   None.
 function Add-TierLevelIsolationUserPath {
     param (
         [Parameter(Mandatory = $true, Position = 0)]
@@ -332,7 +595,7 @@ function Add-TierLevelIsolationUserPath {
         [Parameter(Mandatory = $false, Position = 2)]
         [string]$configFile = $global:configFile
     )
-    
+    # Resolve full DNs in their declared domain and relative paths in the current domain.
     $config = Get-TierLevelIsolationConfiguration $configFile 
     if ($OU -like "*DC=*"){
         $DNSDomain = ConvertFrom-DN2Dns -DistinguishedName $OU
@@ -347,6 +610,7 @@ function Add-TierLevelIsolationUserPath {
     if ($null -eq $Path) {
         Write-Host "The specified path does not exist: $OU" -ForegroundColor Yellow
     }
+    # Store the path once in the selected tier while preserving all existing paths.
     switch ($TierLevel) {
         "Tier0" { 
             if ($null -eq $config.Tier0UsersPath) {
@@ -369,19 +633,21 @@ function Add-TierLevelIsolationUserPath {
     return
 }
 #.SYNOPSIS
-#   Removing a user path from the specified tier level
+#   Removes a user organizational-unit path from a tier.
 #.DESCRIPTION
-#   This function removes a user path from the specified tier level in the configuration.
+#   Removes an exact OU path from the selected tier's user-path collection. No Active Directory
+#   organizational unit or user account is deleted.
 #.PARAMETER TierLevel
-#   The tier level to remove the user path from. Valid values are "Tier0" and "Tier1".  
-#.PARAMETER Path
-#   The distinguishedname to the user organizational unit to remove. The can can be full qualified or just the OU part.
+#   Tier from which to remove the path. Valid values are Tier0 and Tier1.
+#.PARAMETER OU
+#   Exact OU path value stored in the configuration.
 #.PARAMETER configFile
-#   The path to the configuration file. If not specified, the default location is used. 
-#   The default location is: \\$DNSRoot\SYSVOL\$DNSRoot\scripts\TierLevelIsolation.config
-# .EXAMPLE
-#   Remove-TierLevelUserPath -TierLevel "Tier0" -Path "OU=Users,OU=Tier0,OU=Admin"
-#    Remove the user path from the Tier0 tier level.
+#   Configuration file to update. Defaults to the shared SYSVOL configuration.
+#.EXAMPLE
+#   Remove-TierLevelIsolationUserPath -TierLevel Tier0 -OU "OU=Admins,OU=Tier 0,OU=Admin"
+#   Removes the matching configured path from Tier 0.
+#.OUTPUTS
+#   None.
 function Remove-TierLevelIsolationUserPath {
     param (
         [Parameter(Mandatory = $true, Position = 0)]
@@ -392,7 +658,7 @@ function Remove-TierLevelIsolationUserPath {
         [Parameter(Mandatory = $false, Position = 2)]
         [string]$configFile = $global:configFile
     )
-    
+    # Configuration removal is intentionally independent of current OU existence in AD.
     $config = Get-TierLevelIsolationConfiguration $configFile 
     switch ($TierLevel) {
         "Tier0" { 
@@ -410,19 +676,27 @@ function Remove-TierLevelIsolationUserPath {
     return
 }
 #.SYNOPSIS
-#   Add the Kerberos Authentication Policy to the specified tier level
+#   Sets the Kerberos authentication policy name for a tier.
 #.DESCRIPTION   
-#   This function adds the Kerberos Authentication Policy to the specified tier level in the configuration.
-# .PARAMETER TierLevel
-#   The tier level to add the Kerberos Authentication Policy to. Valid values are "Tier0" and "Tier1".
-# .PARAMETER KerberosPolicyName
-#   The name of the Kerberos Authentication Policy to add.
-# .PARAMETER configFile
-#   The path to the configuration file. If not specified, the default location is used.
-#   The default location is: \\$DNSRoot\SYSVOL\$DNSRoot\scripts\TierLevelIsolation.config
-# .EXAMPLE
-#   Set-TierLevelKerberosAuthenticationPolicy -TierLevel "Tier0" -KerberosPolicyName "Tier0KerberosPolicy"
-#    Add the Kerberos Authentication Policy to the Tier0 tier level.
+#   Validates that the policy exists in Active Directory and stores its name for the selected tier.
+#   Force bypasses existence validation so an installer can configure the name before creating the
+#   policy.
+#.PARAMETER TierLevel
+#   Target tier. Valid values are Tier0 and Tier1.
+#.PARAMETER KerberosPolicyName
+#   Authentication policy name to store.
+#.PARAMETER configFile
+#   Configuration file to update. Defaults to the shared SYSVOL configuration.
+#.PARAMETER Force
+#   Stores the name without requiring an existing Active Directory authentication policy.
+#.EXAMPLE
+#   Set-TierLevelIsolationKerberosAuthenticationPolicy -TierLevel Tier0 -KerberosPolicyName "Tier 0 restriction"
+#   Validates and stores an existing Tier 0 policy.
+#.EXAMPLE
+#   Set-TierLevelIsolationKerberosAuthenticationPolicy -TierLevel Tier1 -KerberosPolicyName "Tier 1 restriction" -Force
+#   Stores a policy name before the policy is created.
+#.OUTPUTS
+#   None.
 function Set-TierLevelIsolationKerberosAuthenticationPolicy{
     param (
         [Parameter(Mandatory = $true, Position = 0)]
@@ -435,7 +709,7 @@ function Set-TierLevelIsolationKerberosAuthenticationPolicy{
         [Parameter(Mandatory = $false, Position = 3)]
         [switch]$Force
     )
-    
+    # Normal administration validates the policy; installation can use Force before policy creation.
     $config = Get-TierLevelIsolationConfiguration $configFile
     if ($Force.IsPresent -eq $false){
         $KerbAuthPol = Get-ADAuthenticationPolicy -Filter "Name -eq '$KerberosPolicyName'" -ErrorAction SilentlyContinue 
@@ -444,6 +718,7 @@ function Set-TierLevelIsolationKerberosAuthenticationPolicy{
             return
         }
     }
+    # Each tier has a dedicated configuration property consumed by the user-management script.
     switch ($TierLevel) {
         "Tier0" { 
             $config.T0KerbAuthPolName = $KerberosPolicyName
@@ -456,17 +731,18 @@ function Set-TierLevelIsolationKerberosAuthenticationPolicy{
     return
 }
 #.SYNOPSIS
-#   Add a Domain to the Tier Level Isolation configuration
+#   Adds a forest domain to the configuration.
 #.DESCRIPTION
-#   This function adds a domain to the Tier Level Isolation configuration.
-#.PARAMETER Domains
-#   The domain to add to the configuration.
+#   Verifies that each pipeline value belongs to the current forest and stores the DNS name once.
+#.PARAMETER Domain
+#   DNS name of the forest domain to add. Accepts pipeline input.
 #.PARAMETER configFile
-#   The path to the configuration file. If not specified, the default location is used.
-#   The default location is: \\$DNSRoot\SYSVOL\$DNSRoot\scripts\TierLevelIsolation.config
-# .EXAMPLE
-#   Add-TierLevelDomains -Domains "contoso.com","fabrikam.com"
-#    Add the domains to the configuration.
+#   Configuration file to update. Defaults to the shared SYSVOL configuration.
+#.EXAMPLE
+#   "contoso.com","emea.contoso.com" | Add-TierLevelIsolationDomain
+#   Adds two existing forest domains.
+#.OUTPUTS
+#   None.
 function Add-TierLevelIsolationDomain{
     param (
         [Parameter(Mandatory = $true, Position = 0, ValueFromPipeline = $true)]
@@ -476,11 +752,13 @@ function Add-TierLevelIsolationDomain{
     )
     process{
         $config = Get-TierLevelIsolationConfiguration $configFile 
-        
+
+        # Restrict entries to DNS names advertised by the current forest.
         if ((Get-ADForest).Domains -notcontains $Domain) {
             Write-Host "The specified domain does not exist: $Domain" -ForegroundColor Red
             return
         }
+        # Avoid duplicate domain processing during subsequent management runs.
         if ($config.Domains -notcontains $domain) {
             $config.Domains += $domain
             Set-TierLevelIsolationConfiguration    -configFile $configFile -config $config
@@ -489,17 +767,18 @@ function Add-TierLevelIsolationDomain{
     }
 }
 #.SYNOPSIS
-#   Remove a Domain from the Tier Level Isolation configuration
+#   Removes a forest domain from the configuration.
 #.DESCRIPTION
-#   This function removes a domain from the Tier Level Isolation configuration.
+#   Removes an exact DNS name from the Domains collection. No Active Directory domain is modified.
 #.PARAMETER Domain
 #   The domain to remove from the configuration.
 #.PARAMETER configFile
-#   The path to the configuration file. If not specified, the default location is used.
-#   The default location is: \\$DNSRoot\SYSVOL\$DNSRoot\scripts\TierLevelIsolation.config
-# .EXAMPLE
-#   Remove-TierLevelDomains -Domain "fabrikam.com"  
-#    Remove the domain from the configuration.
+#   Configuration file to update. Defaults to the shared SYSVOL configuration.
+#.EXAMPLE
+#   Remove-TierLevelIsolationDomain -Domain "emea.contoso.com"
+#   Removes the domain from the managed-domain list.
+#.OUTPUTS
+#   None.
 function Remove-TierLevelIsolationDomain{
     param (
         [Parameter(Mandatory = $true, Position = 0)]
@@ -507,7 +786,7 @@ function Remove-TierLevelIsolationDomain{
         [Parameter(Mandatory = $false, Position = 1)]
         [string]$configFile = $global:configFile
     )
-    
+    # Remove only the configuration reference; no domain or trust is modified.
     $config = Get-TierLevelIsolationConfiguration $configFile 
     if ($config.Domains -contains $domain) {
         $config.Domains = @($config.Domains | Where-Object {$_ -ne $domain})
@@ -516,17 +795,18 @@ function Remove-TierLevelIsolationDomain{
     return
 }
 #.SYNOPSIS
-#   Set the current scope of the Tier Level Isolation configuration
+#   Sets the enabled Tier Level Isolation scope.
 #.DESCRIPTION
-#   This function sets the current scope of the Tier Level Isolation configuration.
+#   Replaces the configuration scope with Tier0, Tier1, or All-Tiers.
 #.PARAMETER scope
-#   The scope to set. Valid values are "All-Tiers", "Tier0", and "Tier1".
+#   Scope to set. Valid values are All-Tiers, Tier0, and Tier1.
 #.PARAMETER configFile
-#   The path to the configuration file. If not specified, the default location is used.
-#   The default location is: \\$DNSRoot\SYSVOL\$DNSRoot\scripts\TierLevelIsolation.config
-# .EXAMPLE
-#   Set-TierLevelScope -scope "All-Tiers"
-#    Set the scope to "All-Tiers".  
+#   Configuration file to update. Defaults to the shared SYSVOL configuration.
+#.EXAMPLE
+#   Set-TierLevelIsolationScope -scope All-Tiers
+#   Enables both tiers in the configuration.
+#.OUTPUTS
+#   None.
 function Set-TierLevelIsolationScope{
     param (
         [Parameter(Mandatory = $true, Position = 0)]
@@ -535,24 +815,29 @@ function Set-TierLevelIsolationScope{
         [Parameter(Mandatory = $false, Position = 1)]
         [string]$configFile = $global:configFile
     )
-    
+    # Replace the single active scope value and persist it immediately.
     $config = Get-TierLevelIsolationConfiguration $configFile 
     $config.scope = $scope
     Set-TierLevelIsolationConfiguration -configFile $configFile -config $config
     return
 }
 #.SYNOPSIS
-#   Set the current state of protected users in the Tier Level Isolation configuration
+#   Selects which tiers participate in Protected Users management.
 #.DESCRIPTION
-#   This function sets the current state of protected users in the Tier Level Isolation configuration.  
+#   Stores Tier-0, Tier-1, both tiers, or an empty collection in ProtectedUsers. The scheduled user
+#   management script uses this setting to maintain Protected Users membership.
 #.PARAMETER TierLevel
-#   The tier level to set the state for. Valid values are "Tier-0", "Tier-1", "All-Tiers", and "None".
+#   Tier selection. Valid values are Tier-0, Tier-1, All-Tiers, and None.
 #.PARAMETER configFile
-#   The path to the configuration file. If not specified, the default location is used.
-#   The default location is: \\$DNSRoot\SYSVOL\$DNSRoot\scripts\TierLevelIsolation.config
-# .EXAMPLE
-#   Set-TierLevelProtectedUsersState -TierLevel "All-Tiers"
-#    Set the state of protected users to "All-Tiers".
+#   Configuration file to update. Defaults to the shared SYSVOL configuration.
+#.EXAMPLE
+#   Set-TierLevelProtectedUsersState -TierLevel All-Tiers
+#   Enables Protected Users management for Tier 0 and Tier 1.
+#.EXAMPLE
+#   Set-TierLevelProtectedUsersState -TierLevel None
+#   Disables Protected Users management.
+#.OUTPUTS
+#   None.
 function Set-TierLevelProtectedUsersState{
     param (
         [Parameter(Mandatory = $true, Position = 0)]
@@ -561,7 +846,7 @@ function Set-TierLevelProtectedUsersState{
         [Parameter(Mandatory = $false, Position = 1)]
         [string]$configFile = $global:configFile
     )
-    
+    # Convert the user-facing selection into the array consumed by account management.
     $config = Get-TierLevelIsolationConfiguration $configFile 
     switch ($TierLevel) {
         "All-Tiers" { 
@@ -580,17 +865,19 @@ function Set-TierLevelProtectedUsersState{
     Set-TierLevelIsolationConfiguration -configFile $configFile -config $config
     return}
 #.SYNOPSIS
-#   Set the state of privileged users clean up in the Tier Level Isolation configuration
+#   Enables or disables privileged-group cleanup.
 #.DESCRIPTION
-#   This function sets the state of privileged users clean up in the Tier Level Isolation configuration.
-# .PARAMETER state      
-#   The state to set. Valid values are "True" and "False".  
+#   Controls whether the scheduled management scripts clean up incompatible privileged-group
+#   memberships for tier-managed users.
+#.PARAMETER state
+#   State to store. Valid values are True and False.
 #.PARAMETER configFile
-#   The path to the configuration file. If not specified, the default location is used.
-#   The default location is: \\$DNSRoot\SYSVOL\$DNSRoot\scripts\TierLevelIsolation.config
-# .EXAMPLE
-#   Set-TierLevelPrivilegedGroupsCleanUpState -state "True"
-#    Set the state of privileged groups clean up to "True".
+#   Configuration file to update. Defaults to the shared SYSVOL configuration.
+#.EXAMPLE
+#   Set-TierLevelPrivilegedGroupsCleanUpState -state True
+#   Enables privileged-group cleanup.
+#.OUTPUTS
+#   None.
 function Set-TierLevelPrivilegedGroupsCleanUpState{
     param (
         [Parameter(Mandatory = $true, Position = 0)]
@@ -601,21 +888,33 @@ function Set-TierLevelPrivilegedGroupsCleanUpState{
 
 
     )
+    # Store the validated state in the shared configuration for scheduled user management.
     $config = Get-TierLevelIsolationConfiguration $configFile 
     $config.PrivilegedGroupsCleanUp = $state
     Set-TierLevelIsolationConfiguration -configFile $configFile -config $config
     return
 }
 #.SYNOPSIS
-#   Set the computer group for the specified tier level 
+#   Sets the server group for a tier.
 #.DESCRIPTION
-#   This function sets the computer group for the specified tier level in the configuration.
+#   Resolves the group through a global catalog and stores its name for the selected tier. Force
+#   bypasses group validation so installation can configure the name before creating the group.
 #.PARAMETER TierLevel
-#   The tier level to set the computer group for. Valid values are "Tier0" and "Tier1".
+#   Target tier. Valid values are Tier0 and Tier1.
 #.PARAMETER GroupName
-#   The name of the computer group to set.  This can be a full qualified name or just the group name.
+#   Active Directory group name to store.
 #.PARAMETER configFile
-#   The path to the configuration file. If not specified, the default location is used. 
+#   Configuration file to update. Defaults to the shared SYSVOL configuration.
+#.PARAMETER Force
+#   Stores the name without requiring the group to exist.
+#.EXAMPLE
+#   Set-TierLevelIsolationComputerGroup -TierLevel Tier0 -GroupName "Tier 0 server"
+#   Validates and stores an existing Tier 0 server group.
+#.EXAMPLE
+#   Set-TierLevelIsolationComputerGroup -TierLevel Tier1 -GroupName "Tier 1 server" -Force
+#   Stores the Tier 1 server group name before group creation.
+#.OUTPUTS
+#   None.
 function Set-TierLevelIsolationComputerGroup{
     param (
         [Parameter(Mandatory = $true, Position = 0)]
@@ -628,12 +927,13 @@ function Set-TierLevelIsolationComputerGroup{
         [Parameter(Mandatory = $false, Position = 3)]
         [switch]$Force
     )
-    
+    # Load the current snapshot before validating and replacing one tier-specific property.
     $config = Get-TierLevelIsolationConfiguration $configFile 
     if ($null -eq $GroupName) {
         Write-Host "The specified group name is null or empty." -ForegroundColor Red
         return
     }
+    # Query a global catalog so universal groups created elsewhere in the forest can be resolved.
     if ($Force.IsPresent -eq $false){
         $Adgroup = Get-ADGroup -Filter "Name -eq '$GroupName'" -ErrorAction SilentlyContinue -Server "$((Get-ADDomainController -Discover -Service GlobalCatalog).HostName):3268" 
         if ($null -eq $Adgroup) {
@@ -641,6 +941,7 @@ function Set-TierLevelIsolationComputerGroup{
             return
         }
     }
+    # Force changes validation only; both paths persist the same group-name value.
     switch ($TierLevel) {
         "Tier0" {
             $config.Tier0ComputerGroup = $GroupName
@@ -655,18 +956,27 @@ function Set-TierLevelIsolationComputerGroup{
     return
 }
 #.SYNOPSIS
-#   Add a service account path to the specified tier level  
+#   Adds a service-account organizational-unit path to a tier.
 #.DESCRIPTION
-#   This function adds a service account path to the specified tier level in the configuration.
+#   Validates a relative path in the current domain or a full distinguished name in its specified
+#   domain, then stores it once in the selected tier collection. Force permits a missing OU so an
+#   installation can configure the path before creating it.
 #.PARAMETER TierLevel
-#   The tier level to add the service account path to. Valid values are "Tier0" and "Tier1".
+#   Target tier. Valid values are Tier0 and Tier1.
 #.PARAMETER OU
-#   The distinguishedname to the service account organizational unit to add. The can can be full qualified or just the OU part.
-#   If the path is not a valid OU, the function will return a warning.
+#   Relative OU path or complete distinguished name to add.
 #.PARAMETER configFile
-#   The path to the configuration file. If not specified, the default location is used.
-#   The default location is: \\$DNSRoot\SYSVOL\$DNSRoot\scripts\TierLevelIsolation.config   
-
+#   Configuration file to update. Defaults to the shared SYSVOL configuration.
+#.PARAMETER Force
+#   Stores the path even when the OU does not currently exist.
+#.EXAMPLE
+#   Add-TierLevelIsolationServiceAccountPath -TierLevel Tier0 -OU "OU=Service Accounts,OU=Tier 0,OU=Admin"
+#   Adds a relative Tier 0 service-account path.
+#.EXAMPLE
+#   Add-TierLevelIsolationServiceAccountPath -TierLevel Tier1 -OU "OU=Service Accounts,OU=Tier 1,DC=contoso,DC=com" -Force
+#   Stores a fully qualified path without requiring the OU to exist.
+#.OUTPUTS
+#   None.
 function Add-TierLevelIsolationServiceAccountPath {
     param (
         [Parameter(Mandatory = $true, Position = 0)]
@@ -684,6 +994,7 @@ function Add-TierLevelIsolationServiceAccountPath {
         Write-Host "The specified OU is null or empty." -ForegroundColor Red
         return
     }
+    # Full DNs select their domain through DC components; relative paths use the current domain.
     if ($OU -like "*DC=*"){
         $DNSDomain = ConvertFrom-DN2Dns -DistinguishedName $OU
         if ($null -eq $DNSDomain){
@@ -697,6 +1008,7 @@ function Add-TierLevelIsolationServiceAccountPath {
     if ($null -eq $Path -and !$Force) {
         Write-Host "The specified path does not exist: $OU" -ForegroundColor Yellow
     }
+    # Add only missing values so rerunning configuration remains idempotent.
     switch ($TierLevel) {
         "Tier0" {
             if ($null -eq $config.Tier0ServiceAccountPath) {
@@ -721,13 +1033,21 @@ function Add-TierLevelIsolationServiceAccountPath {
     return
 }
 #.SYNOPSIS
-#   Remove a service account path from the specified tier level
+#   Removes a service-account organizational-unit path from a tier.
 #.DESCRIPTION
-#   This function removes a service account path from the specified tier level in the configuration.
+#   Removes an exact OU path from the selected tier's service-account-path collection. No Active
+#   Directory organizational unit or account is deleted.
 #.PARAMETER TierLevel
-#   The tier level to remove the service account path from. Valid values are "Tier0" and "Tier1".
+#   Tier from which to remove the path. Valid values are Tier0 and Tier1.
 #.PARAMETER OU
-#   The distinguishedname to the service account organizational unit to remove. The can can be full qualified or just the OU part.  
+#   Exact OU path value stored in the configuration.
+#.PARAMETER configFile
+#   Configuration file to update. Defaults to the shared SYSVOL configuration.
+#.EXAMPLE
+#   Remove-TierLevelIsolationServiceAccountPath -TierLevel Tier1 -OU "OU=Service Accounts,OU=Tier 1,OU=Admin"
+#   Removes the matching path from Tier 1.
+#.OUTPUTS
+#   None.
 function Remove-TierLevelIsolationServiceAccountPath {
     param (
         [Parameter(Mandatory = $true, Position = 0)]
@@ -743,6 +1063,7 @@ function Remove-TierLevelIsolationServiceAccountPath {
         Write-Host "The specified OU is null or empty." -ForegroundColor Red
         return
     }
+    # Remove the exact stored string without deleting the corresponding Active Directory OU.
     switch ($TierLevel) {
         "Tier0" {
             if ($config.Tier0ServiceAccountPath -contains $OU) {
@@ -767,70 +1088,81 @@ function Remove-TierLevelIsolationServiceAccountPath {
     return
 }
 #.SYNOPSIS
-#   Set the path for the debug log file
+#   Sets the runtime debug-log directory.
 #.DESCRIPTION
-#   This function sets the path for the debug log file in the configuration.
+#   Stores the directory used by TierLevelComputerManagement.ps1 and
+#   TierLevelUserManagement.ps1. An empty value instructs those scripts to use local AppData.
 #.PARAMETER LogPath    
-#   The path to the debug log file. This can be a full path or just the file name.
+#   Existing log directory, or an empty string to select local AppData at runtime.
 #.PARAMETER configFile
-#   The path to the configuration file. If not specified, the default location is used.
-#   The default location is: \\$DNSRoot\SYSVOL\$DNSRoot\scripts\TierLevelIsolation.config
+#   Configuration file to update. Defaults to the shared SYSVOL configuration.
+#.EXAMPLE
+#   Set-DebugLogPath -LogPath "C:\Logs\TierLevelIsolation"
+#   Configures a central runtime log directory.
+#.EXAMPLE
+#   Set-DebugLogPath -LogPath ""
+#   Restores the local AppData behavior.
+#.OUTPUTS
+#   None.
 function Set-DebugLogPath {
     param (
         [Parameter(Mandatory = $true, Position = 0)]
+        [AllowEmptyString()]
         [string]$LogPath,
         [Parameter(Mandatory = $false, Position = 1)]
         [string]$configFile = $global:configFile
     )
-    Get-TierLevelIsolationConfiguration $configFile | Add-Member -MemberType NoteProperty -Name LogPath -Value $LogPath -Force
+    $config = Get-TierLevelIsolationConfiguration $configFile
+    # Force creates the property for compatibility with configuration files from older versions.
+    $config | Add-Member -MemberType NoteProperty -Name LogPath -Value $LogPath -Force
     Set-TierLevelIsolationConfiguration -configFile $configFile -config $config
 }
 #.SYNOPSIS
-#   Get the path for the debug log file
+#   Gets the configured runtime debug-log directory.
 #.DESCRIPTION
-#   This function gets the path for the debug log file from the configuration.
+#   Returns the LogPath value used by the scheduled management scripts. An empty string means the
+#   scripts use the local AppData directory of their execution identity.
 #.PARAMETER configFile
-#   The path to the configuration file. If not specified, the default location is used.
-#   The default location is: \\$DNSRoot\SYSVOL\$DNSRoot\scripts\TierLevelIsolation.config
+#   Configuration file to read. Defaults to the shared SYSVOL configuration.
+#.EXAMPLE
+#   Get-DebugLogPath
+#   Returns the configured runtime log directory.
+#.OUTPUTS
+#   System.String. Configured directory or an empty string.
 function Get-DebugLogPath {
     param (
         [Parameter(Mandatory = $false, Position = 0)]
         [string]$configFile = $global:configFile
     )
+    # Reading through the schema-aware loader guarantees that LogPath exists for legacy files.
     $config = Get-TierLevelIsolationConfiguration $configFile 
     return $config.LogPath
 }
 
 #.SYNOPSIS
-#   Add a group to the specified tier level
+#   Adds a group using the legacy name-based storage format.
 #.DESCRIPTION
-#   This function adds a group to the specified tier level in the configuration.
+#   Resolves a group from NetBIOS, UPN-style, canonical, or unqualified input and stores the group
+#   as DOMAIN\SamAccountName. Tier 1 rejects groups already assigned to Tier 0.
 #.PARAMETER TierLevel
-#   The tier level to add the group to. Valid values are "Tier0" and "Tier1".
+#   Target tier. Valid values are Tier0 and Tier1.
 #.PARAMETER GroupName  
-#   The name of the group to add. The groupname format can be
-#       NetBIOS format: DOMAIN\GroupName
-#       UPN format: GroupName@domain.com
-#       LDAP format: domain.com/GroupName
+#   Group in DOMAIN\GroupName, GroupName@dns.name, dns.name/GroupName, or unqualified format.
+#   Accepts pipeline input.
 #.PARAMETER configFile
-#   The path to the configuration file. If not specified, the default location is used.
-#   The default location is: \\$DNSRoot\SYSVOL\$DNSRoot\scripts\TierLevelIsolation.config
-# .EXAMPLE
-#   Add-TierLevelIsolationGroups -TierLevel "Tier0" -GroupName "MyTier0Group"
-#    Add the group to the Tier0 tier level.
-# .EXAMPLE  
-#   Add-TierLevelIsolationGroups -TierLevel "Tier1" -GroupName "DOMAIN\MyTier1Group"
-#    Add the group to the Tier1 tier level.
-# .EXAMPLE
-#   Add-TierLevelIsolationGroups -TierLevel "Tier1" -GroupName "MyTier1Group@DomainDNS"
-# .EXAMPLE
-#   Add-TierLevelIsolationGroups -TierLevel "Tier1" -GroupName "DomainDNS/MyTier1Group"
-# .NOTE
-#   This function validates if the group exists in Active Directory before adding it to the configuration.
-#   It supports group names in  NetBIOS format (DOMAIN\GroupName) "
-#   If the group does not exist, a warning is displayed and the group is not added to the configuration.
-#   If the group already exists in Tier0, it cannot be added to Tier1.
-function Add-TierLevelIsolationGroup {
+#   Configuration file to update. Defaults to the shared SYSVOL configuration.
+#.EXAMPLE
+#   Add-TierLevelIsolationGroupLegacy -TierLevel Tier0 -GroupName "CONTOSO\Legacy Operators"
+#   Stores the group's normalized NetBIOS name in Tier 0.
+#.EXAMPLE
+#   Add-TierLevelIsolationGroupLegacy -TierLevel Tier1 -GroupName "Legacy Operators@emea.contoso.com"
+#   Resolves and stores a Tier 1 group from UPN-style input.
+#.OUTPUTS
+#   None.
+#.NOTES
+#   Internal compatibility helper; it is not exported. New code must use
+#   Add-TierLevelIsolationGroup, which stores stable group SIDs instead of names.
+function Add-TierLevelIsolationGroupLegacy {
     param (
         [Parameter(Mandatory = $true, Position = 0)]
         [ValidateSet("Tier0", "Tier1")]
@@ -841,9 +1173,9 @@ function Add-TierLevelIsolationGroup {
         [string]$configFile = $global:configFile
     )
     process{
-        #Read the configuration file
+        # Read the legacy name-based collections from the shared configuration.
         $config = Get-TierLevelIsolationConfiguration $configFile 
-        #extract domain and group name from the input
+        # Extract domain and group name from each historically supported input format.
         try{
             switch -regex ($GroupName) {
                 '^(.+?)\\(.+)$' {
@@ -877,7 +1209,7 @@ function Add-TierLevelIsolationGroup {
                     break
                 }
             }
-            # Validate if the group exists in the specified domain
+        # Validate the group and normalize it to DOMAIN\SamAccountName before persistence.
         $Adgroup = Get-ADGroup -Identity $GroupName -Server $DomainDNSName -ErrorAction SilentlyContinue
         if ($null -eq $ADgroup) {
             Write-Host "The specified group does not exist for group: $GroupName in $DomainDNSName" -ForegroundColor Red
@@ -897,7 +1229,7 @@ function Add-TierLevelIsolationGroup {
             Write-Host "An error occurred while processing the group: $GroupName. Error: $_" -ForegroundColor Red
             return
         }                 
-        # switch Tier level
+        # Tier 0 takes precedence in the legacy model; cross-tier assignment is rejected.
         if ($TierLevel -eq "Tier0") {
             if ($config.Tier0Groups -notcontains $GroupNameInNetBiosNotation) {
                 $config.Tier0Groups += $GroupNameInNetBiosNotation
@@ -915,28 +1247,26 @@ function Add-TierLevelIsolationGroup {
     }
 }
 
-#
 #.SYNOPSIS
-#   Remove a group from the specified tier level
+#   Removes a group stored in the legacy name-based format.
 #.DESCRIPTION
-#   This function removes a group from the specified tier level in the configuration.
+#   Normalizes an unqualified group name to the current domain's NetBIOS format and removes the
+#   exact DOMAIN\GroupName value from the selected tier collection.
 #.PARAMETER TierLevel
-#   The tier level to remove the group from. Valid values are "Tier0" and "Tier1".
+#   Tier from which to remove the group. Valid values are Tier0 and Tier1.
 #.PARAMETER GroupName
-#   The name of the group to remove. This can be a full qualified name or just the group name.
+#   Stored DOMAIN\GroupName value or an unqualified current-domain group name. Accepts pipeline input.
 #.PARAMETER configFile
-#   The path to the configuration file. If not specified, the default location is used.
-#   The default location is: \\$DNSRoot\SYSVOL\$DNSRoot\scripts\TierLevelIsolation.config
-# .EXAMPLE
-#   Remove-TierLevelIsolationGroups -TierLevel "Tier0" -GroupName "Domain\MyTier0Group"
-#    Remove the group from the Tier0 tier level.
-# .EXAMPLE
-#   Remove-TierLevelIsolationGroups -TierLevel "Tier1" -GroupName "MyTier1Group"
-#    Remove the group from the Tier1 tier level.
-# .NOTE
-#   If the group exists in Tier0, it must be removed from Tier0 before it can be removed from Tier1.
-
-function Remove-TierLevelIsolationGroup {
+#   Configuration file to update. Defaults to the shared SYSVOL configuration.
+#.EXAMPLE
+#   Remove-TierLevelIsolationGroupLegacy -TierLevel Tier0 -GroupName "CONTOSO\Legacy Operators"
+#   Removes the exact legacy Tier 0 entry.
+#.OUTPUTS
+#   None.
+#.NOTES
+#   Internal compatibility helper; it is not exported. New code must use
+#   Remove-TierLevelIsolationGroup, which operates on SID-based entries.
+function Remove-TierLevelIsolationGroupLegacy {
     param (
         [Parameter(Mandatory = $true, Position = 0)]
         [ValidateSet("Tier0", "Tier1")]
@@ -948,10 +1278,12 @@ function Remove-TierLevelIsolationGroup {
     )
     process{
         $config = Get-TierLevelIsolationConfiguration $configFile 
+        # Legacy entries are stored in NetBIOS notation; qualify current-domain names when needed.
         If ($GroupName -notcontains '\'){
             $DomainNetBios = (Get-ADDomain).NetBIOSName
             $GroupName = "$DomainNetBios\$GroupName"    
         }
+        # Filter the selected legacy collection and leave the opposite tier untouched.
         if ($TierLevel -eq "Tier0") {
             if ($config.Tier0Groups -contains $GroupName) {
                 $config.Tier0Groups = @($config.Tier0Groups | Where-Object {$_ -ne $GroupName})

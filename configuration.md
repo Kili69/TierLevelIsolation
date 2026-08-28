@@ -52,3 +52,54 @@ Is a array of distinguished names where the Tier 0 user objects are stored. If a
 ### Tier1UsersPath"
 Is a array of distinguished names where the Tier 1 user objects are stored. If a relative distinguished name is used like "OU=Users,OU=Tier 1,OU=Admin". The user management script searches for all users in this path in every domain defined in the domain list
 
+### Tier0Groups
+
+An array of SIDs for additional Active Directory groups whose members are
+validated as Tier 0 identities. Group names are not stored in the
+configuration.
+
+```json
+"Tier0Groups": [
+	"S-1-5-21-111111111-222222222-333333333-1100"
+]
+```
+
+### Tier1Groups
+
+An array of SIDs for additional Active Directory groups whose members are
+validated as Tier 1 identities. A group SID cannot be assigned to both tiers.
+
+```json
+"Tier1Groups": [
+	"S-1-5-21-111111111-222222222-333333333-1200"
+]
+```
+
+Additional groups are processed only when `PrivilegedGroupsCleanUp` is enabled.
+The group SID must resolve in one of the domains listed in `Domains`.
+
+## Managing additional groups
+
+`Add-TierLevelIsolationGroup` accepts a SID or an Active Directory group
+identity. Names are resolved when the command runs; only the resulting SID is
+stored.
+
+```powershell
+Add-TierLevelIsolationGroup -TierLevel Tier0 -GroupName 'CONTOSO\Tier 0 Operators'
+Add-TierLevelIsolationGroup -TierLevel Tier1 -GroupSID 'S-1-5-21-111111111-222222222-333333333-1200'
+```
+
+Display all configured groups or only one tier:
+
+```powershell
+Get-TierLevelIsolationGroup
+Get-TierLevelIsolationGroup -TierLevel Tier0
+```
+
+The output includes the stored SID, resolved group name, domain, and resolution
+state. Remove a group by its stored SID or by an identity that can be resolved:
+
+```powershell
+Remove-TierLevelIsolationGroup -TierLevel Tier0 -GroupSID 'S-1-5-21-111111111-222222222-333333333-1100'
+```
+

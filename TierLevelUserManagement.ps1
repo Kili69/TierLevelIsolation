@@ -81,6 +81,16 @@ possibility of such damages
         New log file name with scope and computer name for better identification in shared log paths
         restructuring of the code to improve readability and maintainability
         new event log ID 2001 
+    Version 0.2.20260825.1
+        Aligned event IDs and event source handling with Windows Event Log guidance
+    Version 0.2.20260825.2
+        Added SID-based cleanup for additional Tier 0 and Tier 1 groups
+    Version 0.2.20260825.3
+        Set adminCount to 1 on nested groups during Tier 0 group processing
+    Version 0.2.20260825.4
+        Fixed DNS server resolution for nested groups
+    Version 0.2.20260828.1
+        Read adminCount explicitly before updating nested Tier 0 groups
 
     exist codes:
         0x3E8 - The script terminated with a unexpected error
@@ -161,7 +171,7 @@ function ConvertFrom-NetBIOSNameToDNS {
 .PARAMETER EventID
     Is the event ID logged in the application log
 .EXAMPLE
-    write-log -Message "My message" - Severity Information -EventID 0
+    Write-Log -Message "My message" -Severity Information -EventID 2000
         This will create a new log line in the debug log file, create a eventlog entry in the application log and writes the 
         message parameter to the console
 #>
@@ -191,15 +201,21 @@ function Write-Log {
             if ($null -ne $LogFile) { #Safety check to make sure logfile isn't null
                 Add-Content -Path $LogFile -Value $Error[0].ScriptStackTrace 
             }
-            Write-EventLog -LogName $eventLog -source $source -EventId $EventID -EntryType Error -Message $Message -Category 0
+            if ($EventLogAvailable) {
+                Write-EventLog -LogName $eventLog -source $source -EventId $EventID -EntryType Error -Message $Message -Category 0
+            }
         }
         'Warning' { 
-            Write-Host $Message -ForegroundColor Yellow 
-            Write-EventLog -LogName $eventLog -source $source -EventId $EventID -EntryType Warning -Message $Message -Category 0
+            Write-Host $Message -ForegroundColor Yellow
+            if ($EventLogAvailable) {
+                Write-EventLog -LogName $eventLog -source $source -EventId $EventID -EntryType Warning -Message $Message -Category 0
+            }
         }
         'Information' { 
-            Write-Host $Message 
-            Write-EventLog -LogName $eventLog -source $source -EventId $EventID -EntryType Information -Message $Message -Category 0
+            Write-Host $Message
+            if ($EventLogAvailable) {
+                Write-EventLog -LogName $eventLog -source $source -EventId $EventID -EntryType Information -Message $Message -Category 0
+            }
         }
     }
 }
@@ -325,7 +341,9 @@ function validateAndRemoveUser{
         [Parameter(Mandatory = $true)]
         [string[]] $PrivilegedOU,
         [Parameter(Mandatory = $true)]
-        [string[]] $ServiceAccountPath
+        [string[]] $ServiceAccountPath,
+        [Parameter(Mandatory = $false)]
+        [switch] $SetNestedGroupAdminCount
 
     )
     #if the privileged OU is a relative path, adding "DC=" to the path. This avoid fake Tier 0 OUs path like "OU=Tier 0,OU=Admin,OU=something,DC=contoso,DC=com"
@@ -396,8 +414,25 @@ function validateAndRemoveUser{
                 }
             "group"{
                 $MemberDomainDN = [regex]::Match($member.DistinguishedName,"DC=.*").value
-                $MemberDNSroot = (Get-ADObject -Filter "ncName -eq '$MemberDomainDN'" -SearchBase (Get-ADForest).PartitionsContainer -Properties dnsRoot).dnsRoot
-                validateAndRemoveUser -SID $member.ObjectSid.Value -DomainDNSName $MemberDNSroot -PrivilegedOU $PrivilegedOU -ServiceAccountPath $ServiceAccountPath
+                $MemberCrossRef = Get-ADObject -Filter "ncName -eq '$MemberDomainDN'" -SearchBase (Get-ADForest).PartitionsContainer -Properties dnsRoot
+                $MemberDNSroot = [string](@($MemberCrossRef.dnsRoot)[0])
+                if ([string]::IsNullOrWhiteSpace($MemberDNSroot)) {
+                    Write-Log -Message "Cannot resolve the DNS domain for nested group $($member.DistinguishedName)" -Severity Error -EventID 2213
+                    continue
+                }
+                if ($SetNestedGroupAdminCount) {
+                    try {
+                        $CurrentGroup = Get-ADGroup -Identity $member.DistinguishedName -Properties adminCount -Server $MemberDNSroot -ErrorAction Stop
+                        if ($CurrentGroup.adminCount -ne 1) {
+                            Set-ADGroup -Identity $CurrentGroup.DistinguishedName -Replace @{adminCount=1} -Server $MemberDNSroot -ErrorAction Stop
+                            Write-Log -Message "Set adminCount to 1 on nested Tier 0 group $($CurrentGroup.DistinguishedName)" -Severity Information -EventID 2211
+                        }
+                    }
+                    catch {
+                        Write-Log -Message "Cannot read or set adminCount on nested Tier 0 group $($member.DistinguishedName): $($_.Exception.Message)" -Severity Error -EventID 2212
+                    }
+                }
+                validateAndRemoveUser -SID $member.ObjectSid.Value -DomainDNSName $MemberDNSroot -PrivilegedOU $PrivilegedOU -ServiceAccountPath $ServiceAccountPath -SetNestedGroupAdminCount:$SetNestedGroupAdminCount
             }
         }
     }        
@@ -477,26 +512,35 @@ function RemoveUserFromAdditionalGroups{
         $OUPath = $config.Tier1UsersPath
         $ServiceAccountPath = $config.Tier1ServiceAccountPath
     }
-    #cleanup of the privileged domain groups defined in the configuration file
+    #Cleanup of the privileged groups defined by SID in the configuration file.
     Write-Log "searching for unexpected users $Scope in privileged domain groups defined in the configuration file" -Severity Debug -EventID 2207
-    Foreach ($PrivilegedDomainGroup in $Groups){
-        # Split the domain and group name because the group is defined as DOMAIN\GroupName
-        $DomainNetBiosName = $PrivilegedDomainGroup.Split("\")[0]
-        $GroupName = $PrivilegedDomainGroup.Split("\")[1]
-        $DomainDNS = ConvertFrom-NetBIOSNameToDNS -NetBIOSName $DomainNetBiosName
-        if ($null -ne $DomainDNS){
+    foreach ($GroupSID in @($Groups)) {
+        if ($GroupSID -notmatch '^S-1-(?:\d+-){1,14}\d+$') {
+            Write-Log "The configured additional group '$GroupSID' is not a valid SID" -Severity Warning -EventID 2208
+            continue
+        }
+        $GroupResolved = $false
+        foreach ($DomainDNS in $config.Domains) {
             try {
-                $GroupSID = (Get-ADGroup -Identity $GroupName -Server $DomainDNS).SID  
-                validateAndRemoveUser -SID $GroupSID.Value -DomainDNSName $DomainDNS -PrivilegedOU $OUPath -ServiceAccountPath $ServiceAccountPath                  
+                $Group = Get-ADGroup -Identity $GroupSID -Server $DomainDNS -ErrorAction Stop
+                validateAndRemoveUser -SID $Group.SID.Value -DomainDNSName $DomainDNS -PrivilegedOU $OUPath -ServiceAccountPath $ServiceAccountPath -SetNestedGroupAdminCount:($scope -eq "Tier-0")
+                $GroupResolved = $true
+                break
             }
-            catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException]{
-                Write-Log "Cannot find group $GroupName in $DomainDNS" -Severity Warning -EventID 2208
+            catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] {
+                continue
+            }
+            catch [Microsoft.ActiveDirectory.Management.ADServerDownException] {
+                Write-Log "Cannot contact $DomainDNS while resolving additional group $GroupSID" -Severity Warning -EventID 2210
+                continue
             }
             catch {
-                Write-Log "A general error occurred while processing group $PrivilegedDomainGroup in $DomainDNS" -Severity Warning -EventID 2209
+                Write-Log "A general error occurred while processing group SID $GroupSID in $DomainDNS" -Severity Warning -EventID 2209
+                break
             }
-        } else {
-            Write-Log "Cannot convert NetBIOS name $DomainNetBiosName to DNS name" -Severity Warning -EventID 2210
+        }
+        if (-not $GroupResolved) {
+            Write-Log "Cannot find additional group SID $GroupSID in the configured domains" -Severity Warning -EventID 2208
         }
     }
 }
@@ -507,7 +551,7 @@ function RemoveUserFromAdditionalGroups{
 # Main program starts here
 ##############################################################################################################################
 #script Version 
-$ScriptVersion = "0.2.20260306"
+$ScriptVersion = "0.2.20260828.1"
 #Validate and create event log source if required
 #region Script Constants and Configuration Variables
 
@@ -515,6 +559,7 @@ $ScriptVersion = "0.2.20260306"
 [int]$MaxLogFileSize = 1MB                    # Maximum size of the debug log file before rotation
 [string]$eventLog = "Application"             # Windows Event Log name for informational, warnings and errors
 [string]$source = "TierLevelIsolation"        # Event source identifier for Windows Event Log entries
+[bool]$EventLogAvailable = $true
 
 # Configuration Management
 $config = $null                               # Will hold the parsed JSON configuration object
@@ -534,7 +579,7 @@ $PrivilegedDomainSid = @(
 #endregion
 
 ####
-# check the event source exists. If not, create a new event source. Terminate the script if the event source is not available or created
+#Check whether the event source exists and create it if needed. Disable Event Log output if registration fails.
 try {   
     # Check if the source exists; if not, create it
     if (-not [System.Diagnostics.EventLog]::SourceExists($source)) {
@@ -542,8 +587,8 @@ try {
     }
 }
 catch {
-    Write-EventLog -logName $eventLog -source "Application" -EventId 0 -EntryType Error -Message "$PSCommandPath The event source $source could not be created. The script will use the default event source Application"
-    $source = "Application"
+    $EventLogAvailable = $false
+    Write-Warning "The event source $source could not be created. Windows Event Log output is disabled for this run."
 }
 
 #region read configuration
@@ -555,7 +600,9 @@ try{
         if ((Test-Path -Path $DefaultConfigFile)){
             $config = Get-Content $DefaultConfigFile | ConvertFrom-Json       
         } else {
-            Write-EventLog -LogName "Application" -source $source -Message "TierLevel Isolation Can't find the configuration in $DefaultConfigFile or Active Directory" -EntryType Error -EventID 0
+            if ($EventLogAvailable) {
+                Write-EventLog -LogName $eventLog -source $source -Message "TierLevel Isolation can't find the configuration in $DefaultConfigFile or Active Directory" -EntryType Error -EventID 2002
+            }
             return 0xe7
         }
     }
@@ -565,17 +612,23 @@ try{
             $config = Get-Content $ConfigFile | ConvertFrom-Json
             Write-Log -Message "Read config from $ConfigFile" -Severity Debug -EventID 2015 
             if ($null -eq $config){
-                Write-EventLog -LogName "Application" -source $source -Message "TierLevel Isolation Can't read the configuration from $ConfigFile" -EntryType Error -EventID 0
+                if ($EventLogAvailable) {
+                    Write-EventLog -LogName $eventLog -source $source -Message "TierLevel Isolation can't read the configuration from $ConfigFile" -EntryType Error -EventID 2003
+                }
                 return 0x3E9    
             }
         } else {
-            Write-EventLog -LogName "Application" -source $source -Message "TierLevel Isolation Can't find the configuration file $ConfigFile" -EntryType Error -EventID 0
+            if ($EventLogAvailable) {
+                Write-EventLog -LogName $eventLog -source $source -Message "TierLevel Isolation can't find the configuration file $ConfigFile" -EntryType Error -EventID 2004
+            }
             return 0x3EB
         }
     }
 }
 catch {
-    Write-EventLog -LogName "Application" -Source "Application" -Message "  General error reading configuration" -EntryType Error -EventID 0
+    if ($EventLogAvailable) {
+        Write-EventLog -LogName $eventLog -Source $source -Message "An unexpected error occurred while reading the configuration" -EntryType Error -EventID 2005
+    }
     return 0x3E8
 }
 #region Manage log file
@@ -631,7 +684,7 @@ switch ($scope) {
         }
     }
     Default {
-        Write-Log -Message "Current scope is Tier 0 and Tier 1" -Severity Debug -EventID 2006
+        Write-Log -Message "Current scope is Tier 0 and Tier 1" -Severity Debug -EventID 2007
         $config.Tier0UsersPath = ConvertTo-DistinguishedNames -DomainsDNS $config.Domains -DistinguishedNames $config.Tier0UsersPath
         $config.Tier0ServiceAccountPath = ConvertTo-DistinguishedNames -DomainsDNS $config.Domains -DistinguishedNames $config.Tier0ServiceAccountPath
         $config.Tier1UsersPath = ConvertTo-DistinguishedNames -DomainsDNS $config.Domains -DistinguishedNames $config.Tier1UsersPath
@@ -671,30 +724,33 @@ foreach ($Domain in $config.Domains){
     if ($config.PrivilegedGroupsCleanUp -and $scope -ne "Tier-1"){
         $DomainSID = (Get-ADDomain -server $Domain).DomainSID
         foreach ($relativeSid in $PrivilegedDomainSid) {
-            validateAndRemoveUser -SID "$DomainSID-$RelativeSid" -DomainDNSName $Domain -PrivilegedOU $config.Tier0UsersPath -ServiceAccountPath $config.Tier0ServiceAccountPath
+            validateAndRemoveUser -SID "$DomainSID-$RelativeSid" -DomainDNSName $Domain -PrivilegedOU $config.Tier0UsersPath -ServiceAccountPath $config.Tier0ServiceAccountPath -SetNestedGroupAdminCount
         }
         #Backup Operators
-        validateAndRemoveUser -SID "S-1-5-32-551" -DomainDNSName $Domain -PrivilegedOU $config.Tier0UsersPath -ServiceAccountPath $config.Tier0ServiceAccountPath
+        validateAndRemoveUser -SID "S-1-5-32-551" -DomainDNSName $Domain -PrivilegedOU $config.Tier0UsersPath -ServiceAccountPath $config.Tier0ServiceAccountPath -SetNestedGroupAdminCount
         #Print Operators
-        validateAndRemoveUser -SID "S-1-5-32-550" -DomainDNSName $Domain -PrivilegedOU $config.Tier0UsersPath -ServiceAccountPath $config.Tier0ServiceAccountPath
+        validateAndRemoveUser -SID "S-1-5-32-550" -DomainDNSName $Domain -PrivilegedOU $config.Tier0UsersPath -ServiceAccountPath $config.Tier0ServiceAccountPath -SetNestedGroupAdminCount
         #Server Operators
-        validateAndRemoveUser -SID "S-1-5-32-549" -DomainDNSName $Domain -PrivilegedOU $config.Tier0UsersPath -ServiceAccountPath $config.Tier0ServiceAccountPath
+        validateAndRemoveUser -SID "S-1-5-32-549" -DomainDNSName $Domain -PrivilegedOU $config.Tier0UsersPath -ServiceAccountPath $config.Tier0ServiceAccountPath -SetNestedGroupAdminCount
         #Server Operators
-        validateAndRemoveUser -SID "S-1-5-32-548" -DomainDNSName $Domain -PrivilegedOU $config.Tier0UsersPath -ServiceAccountPath $config.Tier0ServiceAccountPath
+        validateAndRemoveUser -SID "S-1-5-32-548" -DomainDNSName $Domain -PrivilegedOU $config.Tier0UsersPath -ServiceAccountPath $config.Tier0ServiceAccountPath -SetNestedGroupAdminCount
         #Administrators
-        validateAndRemoveUser -SID "S-1-5-32-544" -DomainDNSName $Domain -PrivilegedOU $config.Tier0UsersPath -ServiceAccountPath $config.Tier0ServiceAccountPath
+        validateAndRemoveUser -SID "S-1-5-32-544" -DomainDNSName $Domain -PrivilegedOU $config.Tier0UsersPath -ServiceAccountPath $config.Tier0ServiceAccountPath -SetNestedGroupAdminCount
     }
 }
-if ($config.PrivilegedGroupsCleanUp -and $scope -ne "Tier-1"){
-    #cleanup of the forest privileged groups
-    $forestDNS = (Get-ADDomain).Forest
-    $forestSID = (Get-ADDomain -Server $forestDNS).DomainSID.Value
-    Write-Log "searching for unexpected users in schema admins" -Severity Debug -EventID 2008
-    validateAndRemoveUser -SID "$forestSID-518" -DomainDNSName $forestDNS -PrivilegedOU $config.Tier0UsersPath -ServiceAccountPath $config.Tier0ServiceAccountPath
-    Write-Log "searching for unexpected users in enterprise admins" -Severity Debug -EventID 2009
-    validateAndRemoveUser -SID "$forestSID-519" -DomainDNSName $forestDNS -PrivilegedOU $config.Tier0UsersPath -ServiceAccountPath $config.Tier0ServiceAccountPath
-    RemoveUserFromAdditionalGroups -scope "Tier-0"
-} else {
-    RemoveUserFromAdditionalGroups -scope "Tier-1"
+if ($config.PrivilegedGroupsCleanUp) {
+    if ($scope -ne "Tier-1") {
+        #Cleanup of the forest privileged groups.
+        $forestDNS = (Get-ADDomain).Forest
+        $forestSID = (Get-ADDomain -Server $forestDNS).DomainSID.Value
+        Write-Log "searching for unexpected users in schema admins" -Severity Debug -EventID 2008
+        validateAndRemoveUser -SID "$forestSID-518" -DomainDNSName $forestDNS -PrivilegedOU $config.Tier0UsersPath -ServiceAccountPath $config.Tier0ServiceAccountPath -SetNestedGroupAdminCount
+        Write-Log "searching for unexpected users in enterprise admins" -Severity Debug -EventID 2009
+        validateAndRemoveUser -SID "$forestSID-519" -DomainDNSName $forestDNS -PrivilegedOU $config.Tier0UsersPath -ServiceAccountPath $config.Tier0ServiceAccountPath -SetNestedGroupAdminCount
+        RemoveUserFromAdditionalGroups -scope "Tier-0"
+    }
+    if ($scope -ne "Tier-0") {
+        RemoveUserFromAdditionalGroups -scope "Tier-1"
+    }
 }
 

@@ -24,7 +24,7 @@
     RootModule = '0.1\TierLevelIsolation.psm1'
     
     # Version number of this module.
-    ModuleVersion = '0.1.20251223'
+    ModuleVersion = '0.1.20260828.2'
     
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -45,7 +45,7 @@
     Description = 'This module provides configuration methods for the Kerberos Authentication Policy based Tier Level isolation'
     
     # Minimum version of the PowerShell engine required by this module
-    # PowerShellVersion = ''
+    PowerShellVersion = '5.1'
     
     # Name of the PowerShell host required by this module
     # PowerShellHostName = ''
@@ -89,6 +89,8 @@
                             "Add-TierLevelIsolationUserPath",
   
                             "Get-TierLevelIsolationConfiguration",
+                            "Get-TierLevelIsolationGroup",
+                            "Get-DebugLogPath",
   
                             "Remove-TierLevelIsolationComputerPath",
                             "Remove-TierLevelIsolationDomain",
@@ -97,6 +99,7 @@
                             "Remove-TierLevelIsolationUserPath",
 
                             "Set-TierLevelIsolationComputerGroup",
+                            "Set-DebugLogPath",
                             "Set-TierLevelPrivilegedGroupsCleanUpState",  
                             "Set-TierLevelIsolationKerberosAuthenticationPolicy",
                             "Set-TierLevelIsolationScope",
@@ -129,6 +132,9 @@
         # Tags applied to this module. These help with module discovery in online galleries.
         Tags = @('ActiveDirectory','Kerberos','TierModel','Security','Authentication','KerberosPolicy')
 
+        # ActiveDirectory is provided by Windows RSAT and is not published to PSGallery.
+        ExternalModuleDependencies = @('ActiveDirectory')
+
         # A URL to the license for this module.
         LicenseUri = 'https://github.com/Kili69/TierLevelIsolation/blob/main/LICENSE'
 
@@ -139,7 +145,7 @@
         # IconUri = ''
 
         # ReleaseNotes of this module
-        ReleaseNotes = 'Initial release of TierLevelIsolation module providing configuration methods for Kerberos Authentication Policy based Tier Level isolation'
+        ReleaseNotes = 'Added complete module-level, function-level, and maintainer-focused inline documentation for configuration, OU paths, groups, policies, domains, scope, Protected Users, cleanup, and logging commands.'
         
         RequireLicenseAcceptance = $false
 
