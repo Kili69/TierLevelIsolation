@@ -30,7 +30,7 @@ possibility of such damages
     Effective KDC and Kerberos client registry values on domain controllers are checked only when
     explicitly requested.
 
-    Version 0.1.20260826.13
+    Version 0.1.20260831.1
 
 .PARAMETER Credential
     Optional credential for one non-privileged account from any domain in the forest. The same
@@ -111,7 +111,7 @@ param(
     [switch]$IncludeReadOnlyDomainControllers
 )
 
-$ScriptVersion = '0.1.20260826.13'
+$ScriptVersion = '0.1.20260831.1'
 $ErrorActionPreference = 'Stop'
 $KdcRegistryPath = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\KDC\Parameters'
 $ClientRegistryPath = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Kerberos\Parameters'
@@ -711,7 +711,7 @@ $results = foreach ($domainName in $domainsToTest) {
             KerberosArmoringStatus  = 'Error'
             FastCacheFlags          = $null
             IssuingKdc              = $null
-            IssuingKdcConfirmed     = $null
+            IssuingKdcConfirmed     = $false
             TicketTestError         = $null
         }
 
