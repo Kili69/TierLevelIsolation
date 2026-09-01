@@ -30,7 +30,7 @@ possibility of such damages
     Effective KDC and Kerberos client registry values on domain controllers are checked only when
     explicitly requested.
 
-    Version 0.1.20260901.1
+    Version 0.1.20260901.4
 
 .PARAMETER Credential
     Optional credential for one non-privileged account from any domain in the forest. The same
@@ -111,7 +111,7 @@ param(
     [switch]$IncludeReadOnlyDomainControllers
 )
 
-$ScriptVersion = '0.1.20260901.1'
+$ScriptVersion = '0.1.20260901.4'
 $ErrorActionPreference = 'Stop'
 $KlistPath = Join-Path $env:SystemRoot 'System32\klist.exe'
 $KdcRegistryPath = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\KDC\Parameters'
@@ -137,6 +137,12 @@ function Test-LocalFastSupport {
         if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT -or
             [System.Environment]::OSVersion.Version -lt [version]'6.2') {
             throw 'Kerberos FAST requires Windows 8, Windows Server 2012, or a newer Windows version.'
+        }
+
+        $windowsIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
+        $windowsPrincipal = [Security.Principal.WindowsPrincipal]::new($windowsIdentity)
+        if (-not $windowsPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'klist add_bind requires an elevated process. Start PowerShell with Run as administrator and run the test again.'
         }
 
         if (-not (Test-Path -LiteralPath $KlistPath -PathType Leaf)) {
@@ -228,6 +234,42 @@ function Invoke-FastTicketTest {
         [pscredential]$Credential
     )
 
+    $klistPath = Join-Path $env:SystemRoot 'System32\klist.exe'
+
+    # Start-Process is more reliable with the Windows down-level logon name than with a UPN.
+    # Resolve through the SID so alternate UPN suffixes and differing sAMAccountName values work.
+    try {
+        $credentialSid = ([Security.Principal.NTAccount]::new($Credential.UserName)).Translate(
+            [Security.Principal.SecurityIdentifier]
+        )
+        $downLevelUserName = $credentialSid.Translate(
+            [Security.Principal.NTAccount]
+        ).Value
+        $processCredential = [pscredential]::new(
+            $downLevelUserName,
+            $Credential.Password
+        )
+    }
+    catch {
+        throw "The credential identity '$($Credential.UserName)' could not be resolved to a Windows domain account. $($_.Exception.Message)"
+    }
+
+    # add_bind changes the machine binding cache and requires elevation. Apply it in this elevated
+    # parent/job process instead of the alternate, intentionally non-privileged logon process.
+    # A realm-specific mutex prevents concurrent TestAllDC workers from replacing one another's
+    # binding while still allowing tests for different domains to proceed in parallel.
+    $domainBytes = [Text.Encoding]::UTF8.GetBytes($DomainName.ToUpperInvariant())
+    $hashProvider = [Security.Cryptography.SHA256]::Create()
+    try {
+        $domainHash = [Convert]::ToBase64String($hashProvider.ComputeHash($domainBytes)) `
+            -replace '[^A-Za-z0-9]', ''
+    }
+    finally {
+        $hashProvider.Dispose()
+    }
+    $bindingMutex = [Threading.Mutex]::new($false, "TierLevelIsolation-$domainHash")
+    $mutexAcquired = $false
+
     $workingDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ([guid]::NewGuid().Guid)
     $helperPath = Join-Path $workingDirectory 'Test-FastTicket.ps1'
     $resultPath = Join-Path $workingDirectory 'result.json'
@@ -235,7 +277,7 @@ function Invoke-FastTicketTest {
 
     # The alternate logon identity needs access to the helper script and its JSON result file.
     $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-        $Credential.UserName,
+        $processCredential.UserName,
         [System.Security.AccessControl.FileSystemRights]::Modify,
         [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit',
         [System.Security.AccessControl.PropagationFlags]::None,
@@ -269,10 +311,6 @@ try {
     # A clean cache ensures that this run cannot reuse a service ticket issued by another KDC.
     & $klistPath purge | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "klist purge failed with exit code $LASTEXITCODE." }
-
-    # Bind target-realm Kerberos requests to the DC whose KDC behavior is under test.
-    & $klistPath add_bind $DomainName $DomainController | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "klist add_bind failed with exit code $LASTEXITCODE." }
 
     $requestOutput = (& $klistPath get $ServicePrincipal 2>&1 | Out-String)
     if ($LASTEXITCODE -ne 0) { throw "Service ticket request failed: $requestOutput" }
@@ -323,17 +361,23 @@ catch {
     $result.Error = $_.Exception.Message
 }
 finally {
-    & $klistPath purge_bind | Out-Null
     # JSON returns structured data without mixing the helper process output into the parent console.
     $result | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $ResultPath -Encoding UTF8
 }
 '@
 
     try {
+        $mutexAcquired = $bindingMutex.WaitOne()
+        $bindOutput = (& $klistPath add_bind $DomainName $DomainController 2>&1 | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0) {
+            $hexExitCode = '0x{0:X8}' -f ([uint32]([int64]$LASTEXITCODE -band 0xFFFFFFFFL))
+            throw "klist add_bind failed with exit code $LASTEXITCODE ($hexExitCode). $bindOutput"
+        }
+
         Set-Content -LiteralPath $helperPath -Value $helperScript -Encoding UTF8
         $processParameters = @{
             FilePath         = 'powershell.exe'
-            Credential       = $Credential
+            Credential       = $processCredential
             ArgumentList     = @(
                 '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
                 '-File', ('"{0}"' -f $helperPath),
@@ -347,7 +391,18 @@ finally {
             PassThru         = $true
             WindowStyle      = 'Hidden'
         }
-        $process = Start-Process @processParameters
+        try {
+            $process = Start-Process @processParameters
+        }
+        catch {
+            $nativeError = if ($_.Exception.InnerException -is [ComponentModel.Win32Exception]) {
+                " Windows error $($_.Exception.InnerException.NativeErrorCode)."
+            }
+            else {
+                ''
+            }
+            throw "Windows could not create a logon session for '$downLevelUserName'.$nativeError Verify the password, account state, and local interactive-logon policy. $($_.Exception.Message)"
+        }
         if ($process.ExitCode -ne 0) {
             throw "Ticket test process exited with code $($process.ExitCode)."
         }
@@ -359,6 +414,10 @@ finally {
     }
     finally {
         Remove-Item -LiteralPath $workingDirectory -Recurse -Force -ErrorAction SilentlyContinue
+        if ($mutexAcquired) {
+            $bindingMutex.ReleaseMutex()
+        }
+        $bindingMutex.Dispose()
     }
 }
 
@@ -660,6 +719,12 @@ function Write-TicketTestResult {
 Import-Module ActiveDirectory -Verbose:$false
 Write-Verbose 'Active Directory module loaded.'
 $localFastSupport = Test-LocalFastSupport
+if (-not $localFastSupport.Supported) {
+    Write-Error -Message "Kerberos FAST test prerequisite failed: $($localFastSupport.Error)" `
+        -ErrorAction Continue
+    exit 1
+}
+
 $forest = Get-ADForest
 $localDomain = (Get-ADDomain -Current LocalComputer).DNSRoot
 $currentUserDomain = if ($UseCurrentUser) {
@@ -811,6 +876,11 @@ if ($UseCurrentUser -and $localFastSupport.Supported) {
     & $KlistPath purge_bind | Out-Null
     & $KlistPath purge | Out-Null
     & $KlistPath get "krbtgt/$currentUserDomain" | Out-Null
+}
+elseif ($localFastSupport.Supported) {
+    # Credential-mode workers share the machine binding cache. Remove all temporary bindings only
+    # after every worker has completed so parallel tests in other domains cannot lose their binding.
+    & $KlistPath purge_bind | Out-Null
 }
 
 Write-TicketTestResult -Results $results -ShowDomainController:$TestAllDC

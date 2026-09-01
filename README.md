@@ -239,6 +239,8 @@ Using a service ticket instead of a referral TGT makes it possible to validate K
 #### Requirements
 
 - Run the script on Windows 8, Windows Server 2012, or a newer Windows version.
+- Start PowerShell with **Run as administrator**. Windows requires elevation for `klist add_bind`
+	and `klist purge_bind`; the forest test account itself can remain non-privileged.
 - The Active Directory PowerShell module must be installed.
 - The computer must be joined to the forest or have the required DNS, trust, LDAP, and Kerberos connectivity to every domain being tested.
 - `klist.exe` must support the `get` and `add_bind` commands.
@@ -253,6 +255,8 @@ Without additional selection parameters, the script tests one writable domain co
 ```
 
 The same non-privileged forest account is used for every domain. The script creates an isolated logon session for each test, so the Kerberos ticket cache of the current user is not changed.
+UPN credentials such as `user@contoso.com` are resolved to their Windows `DOMAIN\user` identity
+before the isolated process is created.
 
 To use the currently logged-on user instead:
 
@@ -340,9 +344,18 @@ The effective `EnableCbacAndArmor` registry values can also be checked on the se
 
 #### Common failures
 
+**`klist add_bind` fails with `0xC0000001` / `-1073741823`**
+
+The PowerShell process is not elevated. Start PowerShell with **Run as administrator** and run the
+test again. Version `0.1.20260901.2` and later execute the privileged binding operation in the
+elevated parent process rather than in the non-privileged credential helper.
+
 **`LocalClientFastSupported` is `False`**
 
 The local operating system or `klist.exe` does not provide the required Kerberos functionality. Run `klist /?` and verify that the `get <SPN>` and `add_bind <DOMAIN> <DC>` commands are listed.
+If `whoami /groups` reports `BUILTIN\Administrators` or the domain administrator groups as
+`Group used for deny only` and shows `Medium Mandatory Level`, the current process is not elevated.
+Membership in Domain Admins alone is insufficient; start PowerShell with **Run as administrator**.
 
 **`FastCacheFlags` does not contain `0x40`**
 
@@ -355,6 +368,12 @@ The ticket was issued by a KDC other than the controller selected for the test. 
 **The LDAP service ticket cannot be requested**
 
 Check the `TicketTestError` value with `-Verbose`. Verify that the domain controller FQDN resolves correctly, the `ldap/<DC-FQDN>` SPN exists on the controller account, the forest trust path is available, and Kerberos traffic is not blocked.
+
+**Windows cannot create a logon session for the credential**
+
+Verify the password and account state and ensure the account is permitted to log on locally to the
+test computer. Version `0.1.20260901.4` and later resolves a supplied UPN to `DOMAIN\user` before
+calling `Start-Process`, avoiding UPN interpretation problems in alternate process logons.
 
 **The registry configuration check fails**
 
