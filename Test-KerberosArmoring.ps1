@@ -30,7 +30,7 @@ possibility of such damages
     Effective KDC and Kerberos client registry values on domain controllers are checked only when
     explicitly requested.
 
-    Version 0.1.20260831.1
+    Version 0.1.20260901.1
 
 .PARAMETER Credential
     Optional credential for one non-privileged account from any domain in the forest. The same
@@ -111,8 +111,9 @@ param(
     [switch]$IncludeReadOnlyDomainControllers
 )
 
-$ScriptVersion = '0.1.20260831.1'
+$ScriptVersion = '0.1.20260901.1'
 $ErrorActionPreference = 'Stop'
+$KlistPath = Join-Path $env:SystemRoot 'System32\klist.exe'
 $KdcRegistryPath = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\KDC\Parameters'
 $ClientRegistryPath = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Kerberos\Parameters'
 $RegistryValueName = 'EnableCbacAndArmor'
@@ -138,8 +139,11 @@ function Test-LocalFastSupport {
             throw 'Kerberos FAST requires Windows 8, Windows Server 2012, or a newer Windows version.'
         }
 
-        $klist = Get-Command klist.exe -CommandType Application -ErrorAction Stop
-        $klistHelp = (& $klist.Source '/?' 2>&1 | Out-String)
+        if (-not (Test-Path -LiteralPath $KlistPath -PathType Leaf)) {
+            throw "The Windows Kerberos utility was not found at '$KlistPath'."
+        }
+
+        $klistHelp = (& $KlistPath '/?' 2>&1 | Out-String)
         # (?im) matches case-insensitively and treats every help line separately. ^\s* permits
         # indentation; the remaining tokens require the exact command syntax shown by klist /?.
         if ($klistHelp -notmatch '(?im)^\s*get\s+<SPN>' -or
@@ -249,6 +253,7 @@ param(
     [Parameter(Mandatory = $true)][string]$ResultPath
 )
 
+$klistPath = Join-Path $env:SystemRoot 'System32\klist.exe'
 $result = [ordered]@{
     Success       = $false
     TicketReceived = $false
@@ -262,17 +267,17 @@ $result = [ordered]@{
 
 try {
     # A clean cache ensures that this run cannot reuse a service ticket issued by another KDC.
-    & klist.exe purge | Out-Null
+    & $klistPath purge | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "klist purge failed with exit code $LASTEXITCODE." }
 
     # Bind target-realm Kerberos requests to the DC whose KDC behavior is under test.
-    & klist.exe add_bind $DomainName $DomainController | Out-Null
+    & $klistPath add_bind $DomainName $DomainController | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "klist add_bind failed with exit code $LASTEXITCODE." }
 
-    $requestOutput = (& klist.exe get $ServicePrincipal 2>&1 | Out-String)
+    $requestOutput = (& $klistPath get $ServicePrincipal 2>&1 | Out-String)
     if ($LASTEXITCODE -ne 0) { throw "Service ticket request failed: $requestOutput" }
 
-    $cacheOutput = (& klist.exe 2>&1 | Out-String)
+    $cacheOutput = (& $klistPath 2>&1 | Out-String)
     if ($LASTEXITCODE -ne 0) { throw "klist failed: $cacheOutput" }
 
     # klist separates cached tickets into numbered blocks. Select only the requested LDAP ticket;
@@ -318,7 +323,7 @@ catch {
     $result.Error = $_.Exception.Message
 }
 finally {
-    & klist.exe purge_bind | Out-Null
+    & $klistPath purge_bind | Out-Null
     # JSON returns structured data without mixing the helper process output into the parent console.
     $result | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $ResultPath -Encoding UTF8
 }
@@ -377,6 +382,7 @@ function Invoke-CurrentUserFastTicketTest {
         [string]$ServicePrincipal
     )
 
+    $klistPath = Join-Path $env:SystemRoot 'System32\klist.exe'
     $result = [ordered]@{
         Success      = $false
         TicketReceived = $false
@@ -388,22 +394,22 @@ function Invoke-CurrentUserFastTicketTest {
     }
 
     try {
-        & klist.exe purge | Out-Null
+        & $klistPath purge | Out-Null
         if ($LASTEXITCODE -ne 0) {
             throw "klist purge failed with exit code $LASTEXITCODE."
         }
 
-        & klist.exe add_bind $DomainName $DomainController | Out-Null
+        & $klistPath add_bind $DomainName $DomainController | Out-Null
         if ($LASTEXITCODE -ne 0) {
             throw "klist add_bind failed with exit code $LASTEXITCODE."
         }
 
-        $requestOutput = (& klist.exe get $ServicePrincipal 2>&1 | Out-String)
+        $requestOutput = (& $klistPath get $ServicePrincipal 2>&1 | Out-String)
         if ($LASTEXITCODE -ne 0) {
             throw "Service ticket request failed: $requestOutput"
         }
 
-        $cacheOutput = (& klist.exe 2>&1 | Out-String)
+        $cacheOutput = (& $klistPath 2>&1 | Out-String)
         if ($LASTEXITCODE -ne 0) {
             throw "klist failed: $cacheOutput"
         }
@@ -452,7 +458,7 @@ function Invoke-CurrentUserFastTicketTest {
         $result.Error = $_.Exception.Message
     }
     finally {
-        & klist.exe purge_bind | Out-Null
+        & $klistPath purge_bind | Out-Null
     }
 
     return [pscustomobject]$result
@@ -802,9 +808,9 @@ if ($parallelTests.Count -gt 0) {
 
 if ($UseCurrentUser -and $localFastSupport.Supported) {
     # Leave the current user with a fresh home-domain TGT after the destructive cache tests.
-    & klist.exe purge_bind | Out-Null
-    & klist.exe purge | Out-Null
-    & klist.exe get "krbtgt/$currentUserDomain" | Out-Null
+    & $KlistPath purge_bind | Out-Null
+    & $KlistPath purge | Out-Null
+    & $KlistPath get "krbtgt/$currentUserDomain" | Out-Null
 }
 
 Write-TicketTestResult -Results $results -ShowDomainController:$TestAllDC
