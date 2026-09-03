@@ -61,16 +61,23 @@ possibility of such damages
 
      5. Result and cleanup
          A result is OK only when the ticket exists, FAST bit 0x40 is set, and the issuing KDC matches.
-         An existing ticket without all validation conditions is Warning; parser, command, or ticket
-         acquisition failures are Error. Bindings and temporary isolated-session files are removed,
+         A ticket from the expected KDC without FAST is False, while a ticket from another KDC is
+         Warning. Parser, command, or ticket acquisition failures are Error. Bindings and temporary
+         isolated-session files are removed,
          and current-user mode obtains a fresh home-domain TGT after its destructive cache tests. The
          script writes a color-coded summary, emits complete result objects with Verbose, and exits 0
          only when every requested check succeeds; otherwise it exits 1.
 
-    Version 0.1.20260903.5
+    Version 0.1.20260903.8
 
 .NOTES
     Version history:
+    0.1.20260903.8 - Added PassThru output objects containing domain and domain-controller armoring
+                     statuses and centralized domain status aggregation.
+    0.1.20260903.7 - Distinguished confirmed missing FAST as False, an unexpected issuing KDC as
+                     Warning, and klist or validation failures as Error.
+    0.1.20260903.6 - Wrapped status reasons before the console edge and separated DC labels from
+                     reason text to prevent subsequent domain rows from appearing concatenated.
     0.1.20260903.5 - Added a usage example combining TargetDomain and TestAllDC.
     0.1.20260903.4 - Added armoring reasons for Warning and Error results to the normal output.
     0.1.20260903.3 - Added complete code documentation for Get-KerberosArmoringReason.
@@ -146,10 +153,16 @@ possibility of such damages
 .PARAMETER IncludeReadOnlyDomainControllers
     Includes read-only domain controllers. By default, only writable controllers are tested.
 
+.PARAMETER PassThru
+    Writes one structured object per tested domain controller to the success output stream. Each
+    object contains the domain, aggregated domain status, domain controller, controller status, and
+    controller reason. The color-coded host summary and process exit code remain unchanged.
+
 .OUTPUTS
-    None. A color-coded summary is written to the host. Detailed results for every domain controller
-    are written to the verbose stream when -Verbose is specified. The script exits with code 1 if
-    any check fails or cannot be completed, and with code 0 when all requested checks pass.
+    PSCustomObject when PassThru is specified. A color-coded summary is written to the host. Detailed
+    results for every domain controller are written to the verbose stream when -Verbose is specified.
+    The script exits with code 1 if any check fails or cannot be completed, and with code 0 when all
+    requested checks pass.
 
 .EXAMPLE
     .\Test-KerberosArmoring.ps1 -UseCurrentUser
@@ -173,6 +186,13 @@ possibility of such damages
 
     Tests every writable domain controller in the local computer domain and in child.contoso.com.
     Tests run sequentially because they share the current user's Kerberos ticket cache.
+
+.EXAMPLE
+    $results = .\Test-KerberosArmoring.ps1 -UseCurrentUser -TestAllDC -PassThru
+    $results | Export-Csv -Path .\KerberosArmoring.csv -NoTypeInformation
+
+    Tests every writable domain controller and stores reusable result objects before exporting them
+    to CSV. Host status output is displayed but is not included in the results variable.
 #>
 [CmdletBinding(DefaultParameterSetName = 'Credential')]
 param(
@@ -197,11 +217,14 @@ param(
     [int]$ThrottleLimit = 8,
 
     [Parameter()]
-    [switch]$IncludeReadOnlyDomainControllers
+    [switch]$IncludeReadOnlyDomainControllers,
+
+    [Parameter()]
+    [switch]$PassThru
 )
 
 # Current script release shown at startup and maintained in the comment-based help history.
-$ScriptVersion = '0.1.20260903.5'
+$ScriptVersion = '0.1.20260903.8'
 # Convert non-terminating PowerShell errors into terminating errors handled by the surrounding code.
 $ErrorActionPreference = 'Stop'
 # Use the operating system's Kerberos command-line utility instead of relying on PATH resolution.
@@ -1026,9 +1049,10 @@ function Get-KerberosArmoringStatus {
 
     .DESCRIPTION
         Applies the common status policy used by sequential and parallel tests. Any captured error
-        is Error. A ticket is OK only when it was received, FAST bit 0x40 was present, and the issuing
-        KDC matched the selected controller. A received ticket that does not meet both validation
-        conditions is Warning. Absence of a ticket is Error.
+        or missing ticket is Error. A received ticket from a KDC other than the selected controller
+        is Warning because FAST cannot be attributed to the intended DC. A ticket from the selected
+        controller without FAST bit 0x40 is False. A ticket is OK only when FAST is present and the
+        issuing KDC matches the selected controller.
 
     .PARAMETER TicketReceived
         Indicates whether the requested service ticket was found in the Kerberos cache.
@@ -1044,7 +1068,7 @@ function Get-KerberosArmoringStatus {
         Error status.
 
     .OUTPUTS
-        String containing exactly OK, Warning, or Error.
+        String containing exactly OK, False, Warning, or Error.
 
     .NOTES
         This function is side-effect free and centralizes status semantics for all execution modes.
@@ -1068,15 +1092,19 @@ function Get-KerberosArmoringStatus {
     if ($ErrorMessage) {
         return 'Error'
     }
-    # A successful result requires all independent evidence: ticket, FAST flag, and expected KDC.
-    if ($TicketReceived -and $FastEnabled -and $KdcConfirmed) {
-        return 'OK'
+    # A missing ticket without a more specific diagnostic still means validation could not run.
+    if (-not $TicketReceived) {
+        return 'Error'
     }
-    # A ticket proves Kerberos communication worked, but missing FAST or a mismatched KDC needs review.
-    if ($TicketReceived) {
+    # A different issuing KDC makes the selected controller's FAST state inconclusive.
+    if (-not $KdcConfirmed) {
         return 'Warning'
     }
-    return 'Error'
+    # A ticket from the selected DC provides a definitive positive or negative FAST result.
+    if (-not $FastEnabled) {
+        return 'False'
+    }
+    return 'OK'
 }
 
 function Get-KerberosArmoringReason {
@@ -1173,6 +1201,140 @@ function Get-KerberosArmoringReason {
     return "The FAST cache flag 0x40 is not set (Cache Flags: $cacheFlagsText), and the ticket was issued by $issuingKdcText instead of the selected DC '$DomainController'."
 }
 
+function Write-WrappedStatusReason {
+    <#
+    .SYNOPSIS
+        Writes a status reason without reaching the console's automatic wrap boundary.
+
+    .DESCRIPTION
+        Wraps text at word boundaries using the current console window width. The first line uses
+        Prefix and continuation lines use matching indentation. One column is reserved at the right
+        edge because legacy Windows consoles can leave the cursor in a pending-wrap state when a
+        line exactly fills the window. A width of 120 is used when host dimensions are unavailable.
+
+    .PARAMETER Prefix
+        Label and indentation written before the first line.
+
+    .PARAMETER Text
+        Status-reason text to wrap and write.
+
+    .PARAMETER ForegroundColor
+        Console color used for every output line.
+
+    .OUTPUTS
+        None. Wrapped text is written directly to the host.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSAvoidUsingWriteHost',
+        '',
+        Justification = 'Write-Host is required to preserve the status color.'
+    )]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Prefix,
+
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
+        [string]$Text,
+
+        [Parameter(Mandatory = $true)]
+        [ConsoleColor]$ForegroundColor
+    )
+
+    try {
+        $windowWidth = $Host.UI.RawUI.WindowSize.Width
+    }
+    catch {
+        $windowWidth = 120
+    }
+    $lineWidth = [Math]::Max(40, $windowWidth - 1)
+    $continuationPrefix = ' ' * $Prefix.Length
+    $currentLine = $Prefix
+
+    foreach ($word in ($Text -split '\s+')) {
+        if ($currentLine.Length -gt $Prefix.Length -and
+            $currentLine.Length + $word.Length + 1 -gt $lineWidth) {
+            Write-Host $currentLine -ForegroundColor $ForegroundColor
+            $currentLine = $continuationPrefix + $word
+        }
+        else {
+            $separator = if ($currentLine.Length -gt $Prefix.Length) { ' ' } else { '' }
+            $currentLine += $separator + $word
+        }
+    }
+
+    Write-Host $currentLine -ForegroundColor $ForegroundColor
+}
+
+function Get-DomainKerberosArmoringStatus {
+    <#
+    .SYNOPSIS
+        Aggregates domain-controller armoring statuses into one domain status.
+
+    .DESCRIPTION
+        Returns the most significant status present in a domain using the common priority Error,
+        False, Warning, and OK. The function is shared by host formatting and PassThru output so
+        both representations always report the same domain result.
+
+    .PARAMETER Results
+        Result objects for all tested domain controllers in one domain.
+
+    .OUTPUTS
+        String containing exactly Error, False, Warning, or OK.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [object[]]$Results
+    )
+
+    if ($Results.KerberosArmoringStatus -contains 'Error') {
+        return 'Error'
+    }
+    if ($Results.KerberosArmoringStatus -contains 'False') {
+        return 'False'
+    }
+    if ($Results.KerberosArmoringStatus -contains 'Warning') {
+        return 'Warning'
+    }
+    return 'OK'
+}
+
+function ConvertTo-KerberosArmoringOutput {
+    <#
+    .SYNOPSIS
+        Converts detailed controller results into reusable pipeline objects.
+
+    .DESCRIPTION
+        Groups controller results by domain, calculates the aggregate domain status, and writes one
+        object per controller. Repeating the domain status on every object keeps filtering, grouping,
+        CSV export, and other pipeline operations straightforward.
+
+    .PARAMETER Results
+        Detailed controller result objects produced by the ticket tests.
+
+    .OUTPUTS
+        PSCustomObject with Domain, DomainKerberosArmoringStatus, DomainController,
+        DomainControllerKerberosArmoringStatus, and DomainControllerKerberosArmoringReason.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [object[]]$Results
+    )
+
+    foreach ($domainResults in ($Results | Group-Object Domain | Sort-Object Name)) {
+        $domainStatus = Get-DomainKerberosArmoringStatus -Results $domainResults.Group
+        foreach ($result in ($domainResults.Group | Sort-Object DomainController)) {
+            [pscustomobject][ordered]@{
+                Domain                                = $domainResults.Name
+                DomainKerberosArmoringStatus           = $domainStatus
+                DomainController                       = $result.DomainController
+                DomainControllerKerberosArmoringStatus = $result.KerberosArmoringStatus
+                DomainControllerKerberosArmoringReason = $result.KerberosArmoringReason
+            }
+        }
+    }
+}
+
 function Write-TicketTestResult {
     <#
     .SYNOPSIS
@@ -1182,10 +1344,10 @@ function Write-TicketTestResult {
         By default, one aggregated status is shown per domain. When ShowDomainController is set, one
         status row is shown per tested controller. Full result objects are sent to the verbose stream
         and therefore appear only with -Verbose. Domain aggregation uses the most severe contained
-        status: Error takes precedence over Warning, which takes precedence over OK. Status labels
-        are rendered in red, yellow, and green respectively. When ShowConfigurationStatus is set,
-        the normal summary also contains the combined KDC and client policy status. Warning and Error
-        armoring results include their reason in normal output; successful results remain compact.
+        status: Error takes precedence over False, followed by Warning and OK. Error and False are
+        red, Warning is yellow, and OK is green. When ShowConfigurationStatus is set, the normal
+        summary also contains the combined KDC and client policy status. Every non-OK armoring result
+        includes its reason in normal output; successful results remain compact.
 
     .PARAMETER Results
         Controller result objects to group, sort, summarize, and optionally write in full to the
@@ -1211,7 +1373,7 @@ function Write-TicketTestResult {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
         'PSAvoidUsingWriteHost',
         '',
-        Justification = 'Write-Host is required to render OK, Warning, and Error in status colors.'
+        Justification = 'Write-Host is required to render status values in colors.'
     )]
     param(
         [Parameter(Mandatory = $true)]
@@ -1257,6 +1419,7 @@ function Write-TicketTestResult {
                 $statusColor = switch ($result.KerberosArmoringStatus) {
                     'OK' { 'Green' }
                     'Warning' { 'Yellow' }
+                    'False' { 'Red' }
                     default { 'Red' }
                 }
 
@@ -1276,24 +1439,17 @@ function Write-TicketTestResult {
                     Write-Host $result.KerberosArmoringStatus -ForegroundColor $statusColor
                 }
                 if ($result.KerberosArmoringStatus -ne 'OK') {
-                    Write-Host "  Reason: $($result.KerberosArmoringReason)" `
-                        -ForegroundColor $statusColor
+                    Write-WrappedStatusReason -Prefix '  Reason: ' `
+                        -Text $result.KerberosArmoringReason -ForegroundColor $statusColor
                 }
             }
         }
         else {
-            $domainStatus = if ($domainResults.Group.KerberosArmoringStatus -contains 'Error') {
-                'Error'
-            }
-            elseif ($domainResults.Group.KerberosArmoringStatus -contains 'Warning') {
-                'Warning'
-            }
-            else {
-                'OK'
-            }
+            $domainStatus = Get-DomainKerberosArmoringStatus -Results $domainResults.Group
             $statusColor = switch ($domainStatus) {
                 'OK' { 'Green' }
                 'Warning' { 'Yellow' }
+                'False' { 'Red' }
                 default { 'Red' }
             }
 
@@ -1325,8 +1481,9 @@ function Write-TicketTestResult {
             foreach ($result in ($domainResults.Group |
                     Where-Object { $_.KerberosArmoringStatus -ne 'OK' } |
                     Sort-Object DomainController)) {
-                Write-Host "  $($result.DomainController): $($result.KerberosArmoringReason)" `
-                    -ForegroundColor $statusColor
+                Write-Host "  DC: $($result.DomainController)" -ForegroundColor $statusColor
+                Write-WrappedStatusReason -Prefix '    Reason: ' `
+                    -Text $result.KerberosArmoringReason -ForegroundColor $statusColor
             }
         }
 
@@ -1505,7 +1662,7 @@ $results = foreach ($domainName in $domainsToTest) {
             }
         }
 
-        # Convert the detailed evidence and any diagnostic into the common three-state status.
+        # Convert the detailed evidence and any diagnostic into the common four-value status.
         $result.KerberosArmoringStatus = Get-KerberosArmoringStatus `
             -TicketReceived $result.TicketReceived -FastEnabled $result.FastEnabled `
             -KdcConfirmed $result.IssuingKdcConfirmed -ErrorMessage $result.TicketTestError
@@ -1565,6 +1722,12 @@ elseif ($localFastSupport.Supported) {
 # a requested configuration check adds its status even when verbose output is disabled.
 Write-TicketTestResult -Results $results -ShowDomainController:$TestAllDC `
     -ShowConfigurationStatus:$CheckDomainControllerConfiguration
+
+# PassThru emits one reusable success-stream object per controller. Write-Host summary records remain
+# outside the success stream, so callers can assign or pipe these objects without parsing display text.
+if ($PassThru) {
+    ConvertTo-KerberosArmoringOutput -Results $results
+}
 
 # Phase 3: preserve a machine-readable process result even though the human-readable output is
 # grouped by domain. Optional registry failures count only when that check was explicitly requested.
