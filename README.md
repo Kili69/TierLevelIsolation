@@ -5,122 +5,177 @@ This solution implements Tier Level isolation as described in the blog "Protecti
 The solution automates the management of Tier 0 and Tier 1 users with Kerberos Authentication Policies through scripts. One script adds AD-Computer objects to an AD group included in the Kerberos Authentication Policy claim. Another script applies the policy to Tier 0 / Tier 1 users in the correct OU, and for Tier 0, removes users from privileged groups if they are not located in the correct OU.
 The user management script ensures that users are added to the protected users group and removes users from privileged groups if they are not part of the administrator OU. 
 This solution can manage Tier 0 and Tier 1 users within a single Active Directory Domain or across the entire Active Directory Forest. It utilizes scheduled tasks that run on your primary Active Directory domain, typically the Forest Root domain. 
+# Installation and activation
 
-# The scripts in a nutshell
-## Install.ps1
-Install the solution into you Active Directory environment
-### TierLevelComputerManagement.ps1
-Adds computer to the Kerberos Authentication claim group
-### TierLevelUserManagement.ps1
-Applies the Kerberos Authentication Policy to the Tier Level administrators
+Roll out TierLevelIsolation in the following order. Do not enable automated user management until
+Kerberos Armoring, the Tier 0 server scope, and a limited user proof of concept have been validated.
 
-# Installation 
-Preparation
-Before you start installing TierLevelIsolation, there are a few preparatory steps that need to be done. Make sure you have all the necessary materials and tools on hand. 
-1.	Download the latest version of TierLevelIsolation
-2.	Classify the files as trusted (remove the "mark of the web" attribute) 
-3.	The installation process requires Enterprise Administrator permissions.
-4.	The installation can be done on a member server on which the Active Directory PowerShell modules and the Group Policy Powershell modules are installed.
-5.	(optional) After a review of the files, the files should be signed
-6.	Administration
+## Preparation
 
-## Installation
-The installation process is started via the install.ps1 script. The installation script guides you through the configuration and creates the required resource. The install.ps1 script should be run as an enterprise administrator to avoid access issues with the Kerberos Authentication Police. 
+1. Download the latest version of TierLevelIsolation.
+2. Remove the Mark of the Web from the downloaded files so that PowerShell treats them as trusted.
+3. Use an account with Enterprise Administrator permissions for the initial installation.
+4. Run the installation from a member server with the Active Directory and Group Policy PowerShell
+	 modules installed.
+5. Review the files and, when required by organizational policy, sign the PowerShell scripts.
 
-### Target Selection
-The script provides a list of the Active Directory domains in the current forest. Here you have to make a selection in which domains the tier-level isolation should take place.
+## 1. Install the solution with install.ps1
 
-### Scope Selection
-In the next step, the tier levels for which the TierLevelIsolation is to be used are defined
+Run `install.ps1` as an Enterprise Administrator. The script guides you through the configuration
+and creates the required Active Directory objects, groups, policies, Group Policy settings, and
+scheduled tasks.
 
-## Tier 0
-### Tier 0 Administrator OU
-Here you have to specify the path in which the Tier0 administrators are stored. The path can be specified as a relative path (without the domain components e.g. OU=Admins,OU=Tier 0,OU=Admin), in which case the same OU structure will be applied in all domains. If the OU structures in the individual domains differ, this should be defined individually for each OU (e.g. OU=Admins,OU=Tier 0,OU=Admin,DC=contoso,DC=com)
-If there are Tier 0 users in different OU structures, both relative and fully qualified DN can be specified
+```powershell
+.\install.ps1
+```
 
-### Tier 0 Service Account OU
-This is the path where Tier 0 service accounts are stored. Tier 0 service accounts differ from user accounts in that they are not assigned a Kerberos authentication policy, even though they are in AD privileged groups. Again, multiple paths can be specified as relative DN or fully qualified DN.
+### Target and scope selection
 
-### Tier 0 Server OU
-Is one or more path to the Tier 0 computer objects.
+Select the Active Directory domains in which TierLevelIsolation will operate, followed by the tier
+levels to enable. Review the following values carefully before confirming the installation.
 
-### Tier 0 Kerberos Authentication Policy 
-The name of the Tier 0 Kerberos Authentication Policy. 
+### Tier 0 configuration
 
-## Tier 1
-### Tier 1 Administrator OU
-Is the realtive path where the Tier 1 Administrator accounts are stored. If the path is specified as a relative DN, the OU structure must be present in all domains. Again, multiple DistinguishedNames can be specified.
+- **Tier 0 Administrator OU:** One or more paths containing Tier 0 administrator accounts. Relative
+	distinguished names apply the same OU structure to every selected domain. Use fully qualified
+	distinguished names when domains use different OU structures.
+- **Tier 0 Service Account OU:** One or more paths containing privileged service accounts that must
+	not receive the user Kerberos Authentication Policy. Relative and fully qualified distinguished
+	names can be combined.
+- **Tier 0 Server OU:** One or more paths containing the Tier 0 computer objects.
+- **Tier 0 Kerberos Authentication Policy:** Name of the policy assigned to Tier 0 administrators.
 
-### Tier 1 Service Account OU
-This setting has no function at the moment
+### Tier 1 configuration
 
-### Tier 1 Server OU
-Is the absolute or relative DistinguishedName in which the server objects are stored.
+- **Tier 1 Administrator OU:** One or more relative or fully qualified distinguished names containing
+	Tier 1 administrator accounts.
+- **Tier 1 Service Account OU:** Reserved for future use.
+- **Tier 1 Server OU:** One or more relative or fully qualified distinguished names containing Tier 1
+	computer objects.
+- **Tier 1 Kerberos Authentication Policy:** Name of the policy assigned to Tier 1 administrators.
 
-### Tier 1 Kerberos Authentication Policy name
-Is the name of the Tier 1 Kerberos Authentication Policy
+### Groups and service account
 
-## Server Groups
-### Tier 0 Server group name
-Is the name of the computer group to be included in the Tier 0 computer. This group is created in the Standard Users container. The group should be moved to a Tier 0 managed OU
-### Tier 1 Server group name
-Is the name of the group in which the Tier 1 computers are included. This group is created in the Standard Users container. 
-### Protected Group
-This setting determines whether Tier 0 / Tier 12 users are automatically added to the Protected User group. 
-[0] All user objects stored in the Tier 0 Admin OU are automatically added to the Protected Users group
-[1] All user objects stored in the Tier 1 Admin OU are automatically added to the Protected Users group
-[2] Both Tier 0 and Tier 1 user objects are added to the Protectd Users group
-[3] Neither Tier 0 nor Tier 1 administrators will be added to the Protected Users group
-### Enable privileged group clean up
-If the answer to this question is Y, all user objects from the following groups will be removed, unless they are in the Tier 0 Admin OU, Tier 0 Service Account OU, the Built Administrator and not a GMSA.
-### Group managed service account
-In a multi-domain forest, a GMSA is needed to manage the users in the forest domains. The SAM account name must be entered here. 
-The GMSA is created on demand and added to the Enterprise Administrators group
+- **Tier 0 Server group:** Contains the computers allowed by the Tier 0 Kerberos Authentication
+	Policy. The installer creates the group in the standard Users container; move it to an OU managed
+	as Tier 0 when required.
+- **Tier 1 Server group:** Contains the computers allowed by the Tier 1 Kerberos Authentication
+	Policy.
+- **Protected Users:** Select whether Tier 0 users, Tier 1 users, both tiers, or neither tier are
+	managed as members of the Protected Users group.
+- **Privileged group cleanup:** When enabled, user management removes privileged group members that
+	are outside the configured administrator and service-account OUs. The built-in Administrator and
+	supported gMSA accounts are excluded.
+- **Group managed service account:** A multi-domain forest requires a gMSA to manage users in forest
+	domains. Supply its sAMAccountName during installation. The installer creates the account when
+	required and grants the configured permissions.
 
+The TierLevelIsolation Group Policy contains five scheduled tasks:
 
-## Post installation tasks
-### Validate Kerberos Armoring
-Kerberos Armoring must be active to isolate Tier 0 / Tier 1 administrators. For this purpose, the current Kerberos cache should be set with
-KLIST PURGE 
-Delete and request a new Kerberos ticket (e.g. dir \\<domain>\SYSVOL). Afterwards, you have the requested Kerberos ticket with 
-KLIST
-Indicate. In the TGT displayed, the value "Cache Flags" should be set to 0x41 -> PRIMARY FAST
-The group policy settings for Kerberos Armoring are made only in the local domain. For all other domains in the AD-Forest, the settings must be manually completed.
+- **Change user context:** Changes the Tier 0 and Tier 1 User Management tasks from `SYSTEM` to the
+	configured gMSA because Group Policy Preferences cannot create these tasks directly in that context.
+- **Tier 0 Computer Management:** Adds or removes computer objects from the Tier 0 server group.
+- **Tier 1 Computer Management:** Adds or removes computer objects from the Tier 1 server group.
+- **Tier 0 User Management:** Assigns the Tier 0 Kerberos Authentication Policy and applies the
+	configured account protections.
+- **Tier 1 User Management:** Assigns the Tier 1 Kerberos Authentication Policy and applies the
+	configured account protections.
 
-If Kerberos Armoring is not available validate:
-### Default Domain Policy
-This enables support for Kerberos Armoring for all client computers. This is done via the setting:
-Administrative Templates\System\Kerberos\Kerberos Armoring
+The user-management task triggers are disabled initially to prevent an unvalidated policy from
+locking out administrators.
 
-### Default Domain Controller Policy:
-In this group policy, Kerberos Armoring is enabled at the domain level. The following settings are made for this purpose:
-Administrative Template\System\KDC\Kerberos Armoring Support mode
-Administrative Templates\System\Kerberos\Kerberos Armoring
+## 2. Enable Kerberos Armoring in the AD forest
 
-## Activation of Tier Level Isolation
-Once installed, you will need to enable TierLevelIsolation. Activation is done via the Tier Level Isolation group policy. This policy group consists of 5 Schedule Tasks that run on the current domain. The schedule tasks are:
-### Change user context
-Group Policy Preference does not allow you to create a Schedule Task in the context of a GMSA. This task of this Schedule Task is to change the Schedule Tasks Tier 0 User Management / Tier 1 User Management from SYSTEM to the GMSA context
-### Tier 0 computer management
-The task of this schedule task is to add or remove computer objects from the Tier 0 server group
-Both user Schedule Tasks have the trigger disabled by default to ensure that Tier 0 administrators are not locked out.
-In the first step, the two schedule tasks "Tier 0 Computer Management" and "Tier 1 Computer Management" should be adapted. The default setting is that the task starts daily at 12 p.m. and then repeats every 10 minutes. 
-### Tier 0 user management
-This Schedule Task adds the Tier 0 Kerberos Authentication Policy to Tier 0 administrators
-### Tier 1 computer management
-The task of this schedule task is to add or remove computer objects from the Tier 1 server group
-### Tier 1 user management
-This Schedule Task adds the Tier 1 Kerberos Authentication Policy to Tier 1 administrators
+Kerberos Armoring must be enabled for clients and domain controllers in every domain in scope. The
+installer configures the local domain; review and complete the corresponding Group Policy settings
+in every other forest domain.
 
-Once the Computer Management task has been started for the first time, all computer objects must appear in the Tier 0 Computer group. Once this is done, make sure that the Tier 0 Member Server objects have been restarted. 
-## Active the Tier 0 and Tier 1 user management tasks
-Both user Schedule Tasks have the trigger disabled by default to ensure that Tier 0 administrators are not locked out.
-In the first step, the two schedule tasks "Tier 0 Computer Management" and "Tier 1 Computer Management" should be adapted. The default setting is that the task starts daily at 12 p.m. and then repeats every 10 minutes. 
-Once the Computer Management task has been started for the first time, all computer objects must appear in the Tier 0 Computer group. Once this is done, make sure that the Tier 0 Member Server objects have been restarted. 
-Subsequently, the TierLevel isolation based on "Kerberos Authentication Polices" was to be tested. To do this, the Kerberos Authentication Policy is to add a Tier 0 user and validate the logon with this user object. 
-The test is successful if this user can only authenticate on a Tier 0 member server or a domain controller. (RDP from an unprotected system is not supported)
-The test can be repeated with several users. Once the administrators are familiar with Kerberos Authentication Policy based Administration, the Tier 0 user management task is enabled in the TierLevelIsolation Group Policy. 
-To do this, the trigger in the "Tier 0 User Management" tab must be set to active in the Group Policy in the Preferences/Schedule Task. The Task starts at 12a.m. by default and repeats every 10 minutes. Depending on the environment, these values can be adjusted
+Configure the client policy in the applicable domain policy:
+
+```text
+Administrative Templates\System\Kerberos\Kerberos client support for claims, compound authentication and Kerberos armoring
+```
+
+Configure the domain-controller policies in the applicable Domain Controllers policy:
+
+```text
+Administrative Templates\System\KDC\KDC support for claims, compound authentication and Kerberos armoring
+Administrative Templates\System\Kerberos\Kerberos client support for claims, compound authentication and Kerberos armoring
+```
+
+Allow Group Policy and Active Directory replication to complete, then run `gpupdate /force` on the
+systems used for validation.
+
+## 3. Validate Kerberos Armoring
+
+Run [`Test-KerberosArmoring.ps1`](Test-KerberosArmoring.ps1) from an elevated PowerShell session.
+Validate all forest domains, or use `-TargetDomain` to limit the run to the local computer domain and
+one additional domain.
+
+```powershell
+.\Test-KerberosArmoring.ps1 -Credential (Get-Credential) -TestAllDC
+```
+
+Proceed only when the required domains and domain controllers report `OK`. A `False` result means
+that the selected DC issued a ticket without FAST. `Warning` means that another KDC issued the ticket,
+and `Error` indicates a technical failure. See [Test Kerberos Armoring](#test-kerberos-armoring) for
+all parameters, status definitions, structured output, and troubleshooting.
+
+## 4. Validate Tier 0 member servers
+
+Run or wait for the **Tier 0 Computer Management** scheduled task. Verify that every intended Tier 0
+member-server computer object has been added to the configured Tier 0 server group and that no
+unintended computer is a member.
+
+Restart all Tier 0 member servers after their group membership is correct. The restart ensures that
+the computer obtains a token and Kerberos state based on the current group membership before user
+policy testing begins. Do not continue with the user proof of concept until this step is complete.
+
+## 5. Run a single-user proof of concept
+
+Select one Tier 0 test administrator and assign the Tier 0 Kerberos Authentication Policy manually.
+Do not enable the automated User Management task yet.
+
+Validate the complete administration workflow with this account:
+
+- Authentication succeeds on the intended Tier 0 member servers and domain controllers.
+- Authentication is denied on systems outside the Tier 0 scope.
+- Required administrative tools and remote-management workflows continue to work.
+- Expected restrictions, including unsupported RDP access from an unprotected system, are understood.
+- A recovery account and rollback procedure remain available throughout the test.
+
+Remove or correct the manual policy assignment if the test exposes a missing server, group
+membership, or access path.
+
+## 6. Expand the administrator rollout
+
+After the single-user proof of concept succeeds, assign the policy manually to a small additional
+group of administrators. Increase the rollout in controlled stages while monitoring authentication
+failures and collecting administrator feedback.
+
+Before each stage, confirm that:
+
+- Every administrator account is located in the intended Tier 0 or Tier 1 administrator OU.
+- Service accounts are located in the configured service-account OUs and are excluded as intended.
+- All required administration systems belong to the correct server group and have been restarted.
+- Help desk and recovery procedures are ready for authentication-policy failures.
+
+Continue until the intended administrator population has successfully worked with the policy and
+the operational procedures are established.
+
+## 7. Enable the User Management scheduled tasks
+
+Enable the trigger for **Tier 0 User Management** only after the staged administrator rollout has
+completed successfully. When Tier 1 is in scope, validate its server and user rollout independently
+before enabling **Tier 1 User Management**.
+
+The task trigger is located in the TierLevelIsolation Group Policy under Group Policy Preferences
+and Scheduled Tasks. Review the schedule before activation; the default task starts daily and repeats
+every ten minutes. Adjust the interval to the operational requirements of the environment.
+
+After activation, verify the first runs in the Windows Application event log and confirm that the
+expected Kerberos Authentication Policies, Protected Users memberships, and privileged-group cleanup
+actions were applied. Keep monitoring enabled during the initial production rollout.
 
 # Monitoring
 Monitoring is done in the Application Event log. For detailed information, a debug log file is also created. The path to the log file is logged as Windows events Source:TierLevelIsolation 1000 or Source:TierLevelIsolation 2000.
@@ -229,7 +284,7 @@ Set-DebugLogPath -LogPath ''
 
 ### Test Kerberos Armoring
 
-`Test-KerberosArmoring.ps1` verifies that Kerberos FAST (Kerberos Armoring) is used when a client requests service tickets from the domains in the current Active Directory forest. The script requests an LDAP service ticket for a selected domain controller in each domain and verifies both of the following conditions:
+[`Test-KerberosArmoring.ps1`](Test-KerberosArmoring.ps1) verifies that Kerberos FAST (Kerberos Armoring) is used when a client requests service tickets from the domains in the current Active Directory forest. The script requests an LDAP service ticket for a selected domain controller in each domain and verifies both of the following conditions:
 
 - The cached service ticket contains the `FAST` cache flag (`0x40`).
 - The ticket was issued by the domain controller selected for the test (`Kdc Called`).
@@ -279,6 +334,13 @@ and the valid target domains, then exits with code `1`.
 
 Combine `-TargetDomain` with `-TestAllDC` to test every eligible controller in the local and target domains.
 
+```powershell
+.\Test-KerberosArmoring.ps1 -UseCurrentUser -TargetDomain child.contoso.com -TestAllDC
+```
+
+With `-UseCurrentUser`, these controller tests run sequentially because they share and purge the
+current user's Kerberos ticket cache.
+
 #### Test every domain controller
 
 Use `-TestAllDC` to request and validate a ticket against every eligible domain controller. When a
@@ -311,10 +373,16 @@ The script displays its version at startup so that test output can be assigned t
 | Status | Color | Meaning |
 |---|---|---|
 | `OK` | Green | An LDAP service ticket was received with FAST and from the selected KDC |
-| `Warning` | Yellow | A ticket was received, but Kerberos Armoring could not be confirmed |
-| `Error` | Red | No usable ticket was received or the ticket test failed technically |
+| `False` | Red | A ticket was issued by the selected KDC, but it does not contain the FAST cache flag |
+| `Warning` | Yellow | A ticket was received from a KDC other than the selected domain controller |
+| `Error` | Red | `klist.exe`, ticket acquisition, or result parsing failed, or no usable ticket was received |
 
-A domain shows the most severe status of its selected controllers. The process exits with code `0` only when every requested test has status `OK`; `Warning` and `Error` result in exit code `1`.
+A domain shows the most significant status of its selected controllers using the priority `Error`,
+`False`, `Warning`, and `OK`. The process exits with code `0` only when every requested test has
+status `OK`; every other status results in exit code `1`.
+
+For every non-`OK` result, the regular output shows the affected domain controller and a wrapped
+reason below the domain or controller status. `-Verbose` is not required to see this reason.
 
 Use `-Verbose` to display the result for every tested domain controller:
 
@@ -330,7 +398,8 @@ Important verbose properties are:
 | `ServicePrincipal` | LDAP SPN used to request the service ticket |
 | `TicketReceived` | Indicates whether the requested LDAP service ticket was found in the cache |
 | `FastEnabled` | Indicates whether the ticket contains the FAST cache flag |
-| `KerberosArmoringStatus` | Final `OK`, `Warning`, or `Error` status |
+| `KerberosArmoringStatus` | Final `OK`, `False`, `Warning`, or `Error` status for the controller |
+| `KerberosArmoringReason` | Human-readable reason for the controller status |
 | `FastCacheFlags` | Ticket cache flags; `0x40` indicates FAST |
 | `IssuingKdc` | KDC reported by `klist.exe` as the ticket issuer |
 | `IssuingKdcConfirmed` | Indicates whether the issuing KDC matches the selected controller |
@@ -342,6 +411,39 @@ The effective `EnableCbacAndArmor` registry values can also be checked on the se
 .\Test-KerberosArmoring.ps1 -Credential (Get-Credential) -CheckDomainControllerConfiguration -Verbose
 ```
 
+#### Reuse structured results
+
+Specify `-PassThru` to write one structured object per tested domain controller to the PowerShell
+success output stream. The color-coded summary is written to the host and is therefore not included
+when the output is assigned to a variable:
+
+```powershell
+$results = .\Test-KerberosArmoring.ps1 -UseCurrentUser -TestAllDC -PassThru
+```
+
+Each object contains both the aggregated domain status and the individual controller status:
+
+| Property | Meaning |
+|---|---|
+| `Domain` | DNS name of the tested domain |
+| `DomainKerberosArmoringStatus` | Aggregated domain status using `Error > False > Warning > OK` |
+| `DomainController` | FQDN of the tested domain controller |
+| `DomainControllerKerberosArmoringStatus` | Armoring status for this controller |
+| `DomainControllerKerberosArmoringReason` | Human-readable reason for the controller status |
+
+The objects can be filtered, grouped, or exported without parsing the displayed table:
+
+```powershell
+$results |
+	Where-Object DomainKerberosArmoringStatus -ne 'OK' |
+	Format-Table -AutoSize
+
+$results | Export-Csv -Path .\KerberosArmoring.csv -NoTypeInformation
+```
+
+The process exit code remains unchanged when `-PassThru` is used. Read `$LASTEXITCODE` after the
+script completes when automation needs both the result objects and the overall success signal.
+
 #### Common failures
 
 **`klist add_bind` fails with `0xC0000001` / `-1073741823`**
@@ -349,6 +451,14 @@ The effective `EnableCbacAndArmor` registry values can also be checked on the se
 The PowerShell process is not elevated. Start PowerShell with **Run as administrator** and run the
 test again. Version `0.1.20260901.2` and later execute the privileged binding operation in the
 elevated parent process rather than in the non-privileged credential helper.
+
+**`klist add_bind` fails with Windows error `1722`**
+
+Error `1722` means that the RPC server is unavailable. The failure occurs while the preferred KDC
+binding is created, before the LDAP service ticket is requested. Verify name resolution and network
+routing to the selected domain controller, the RPC endpoint mapper on TCP 135, dynamic RPC ports,
+firewall rules, and the domain controller's RPC services. The regular result output includes the
+affected controller and the complete error reason.
 
 **`LocalClientFastSupported` is `False`**
 
@@ -367,7 +477,10 @@ The ticket was issued by a KDC other than the controller selected for the test. 
 
 **The LDAP service ticket cannot be requested**
 
-Check the `TicketTestError` value with `-Verbose`. Verify that the domain controller FQDN resolves correctly, the `ldap/<DC-FQDN>` SPN exists on the controller account, the forest trust path is available, and Kerberos traffic is not blocked.
+Read the reason displayed below the regular `Error` status. Use `-Verbose` for the complete result
+object including `TicketTestError`. Verify that the domain controller FQDN resolves correctly, the
+`ldap/<DC-FQDN>` SPN exists on the controller account, the forest trust path is available, and
+Kerberos traffic is not blocked.
 
 **Windows cannot create a logon session for the credential**
 
