@@ -5,6 +5,11 @@ This solution implements Tier Level isolation as described in the blog "Protecti
 The solution automates the management of Tier 0 and Tier 1 users with Kerberos Authentication Policies through scripts. One script adds AD-Computer objects to an AD group included in the Kerberos Authentication Policy claim. Another script applies the policy to Tier 0 / Tier 1 users in the correct OU, and for Tier 0, removes users from privileged groups if they are not located in the correct OU.
 The user management script ensures that users are added to the protected users group and removes users from privileged groups if they are not part of the administrator OU. 
 This solution can manage Tier 0 and Tier 1 users within a single Active Directory Domain or across the entire Active Directory Forest. It utilizes scheduled tasks that run on your primary Active Directory domain, typically the Forest Root domain. 
+
+## Changelog
+
+See [CHANGELOG.md](./CHANGELOG.md) for the project change history.
+
 # Installation and activation
 
 Roll out TierLevelIsolation in the following order. Do not enable automated user management until
@@ -512,4 +517,3 @@ Remove-Item Env:PSGALLERY_API_KEY
 
 Increment `ModuleVersion` in `module\TierLevelIsolation.psd1` before every
 subsequent release because PowerShell Gallery versions are immutable.
-
