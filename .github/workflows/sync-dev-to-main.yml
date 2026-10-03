@@ -43,7 +43,14 @@ jobs:
             pull_request="${pull_request_url##*/}"
           fi
 
-          gh pr merge "${pull_request}" --repo "${GITHUB_REPOSITORY}" --auto --merge
+          comparison="$(gh api "repos/${GITHUB_REPOSITORY}/compare/main...Dev" --jq '.status')"
+          if [ "${comparison}" != "ahead" ] && [ "${comparison}" != "identical" ]; then
+            echo "Dev is not based on the current main commit. Updating the pull request branch."
+            gh pr update-branch "${pull_request}" --repo "${GITHUB_REPOSITORY}"
+            exit 0
+          fi
+
+          gh pr merge "${pull_request}" --repo "${GITHUB_REPOSITORY}" --merge
 
           for attempt in $(seq 1 30); do
             state="$(gh pr view "${pull_request}" --repo "${GITHUB_REPOSITORY}" --json state --jq '.state')"
