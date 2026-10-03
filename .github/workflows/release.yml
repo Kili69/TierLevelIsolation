@@ -4,13 +4,6 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch:
-    inputs:
-      force_module_publish:
-        description: Publish the current module even when this commit did not change module files
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   contents: write
@@ -92,7 +85,7 @@ jobs:
   publish-module:
     name: Publish changed PowerShell module
     needs: release
-    if: needs.release.outputs.created == 'true' || inputs.force_module_publish == true
+    if: needs.release.outputs.created == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: windows-latest
     steps:
       - name: Check out repository
@@ -104,26 +97,17 @@ jobs:
         id: module_changes
         shell: pwsh
         run: |
-          $forcePublish = '${{ inputs.force_module_publish }}' -eq 'true'
-          if ($forcePublish) {
+          $before = '${{ github.event.before }}'
+          $zeroCommit = '0000000000000000000000000000000000000000'
+          if ($before -eq $zeroCommit) {
               $changed = $true
           }
           else {
-              $before = '${{ github.event.before }}'
-              $zeroCommit = '0000000000000000000000000000000000000000'
-              if ([string]::IsNullOrWhiteSpace($before)) {
-                  $before = git rev-parse '${{ github.sha }}^1'
+              $changedFiles = @(git diff --name-only $before '${{ github.sha }}' -- module)
+              if ($LASTEXITCODE -ne 0) {
+                  throw "git diff failed with exit code $LASTEXITCODE."
               }
-              if ($before -eq $zeroCommit) {
-                  $changed = $true
-              }
-              else {
-                  $changedFiles = @(git diff --name-only $before '${{ github.sha }}' -- module)
-                  if ($LASTEXITCODE -ne 0) {
-                      throw "git diff failed with exit code $LASTEXITCODE."
-                  }
-                  $changed = $changedFiles.Count -gt 0
-              }
+              $changed = $changedFiles.Count -gt 0
           }
           "changed=$($changed.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
 

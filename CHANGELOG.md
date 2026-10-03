@@ -15,6 +15,10 @@ All notable changes to this project are documented in this file. Historical entr
 
 - Promoted all active scripts, the PowerShell module, and future GitHub releases to version 1.0.
 
+### Fixed
+
+- Restricted PowerShell Gallery publication to module-changing pushes on `main`; commits and pushes on all other branches cannot publish packages.
+
 ## [0.1.20261002.2] - 2026-10-02
 
 ### Fixed
