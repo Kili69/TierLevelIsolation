@@ -38,8 +38,12 @@ jobs:
 
           $version = $Matches.Version
           $tag = "v$version"
-          $existingTagCommit = git rev-list -n 1 $tag 2>$null
-          if ($LASTEXITCODE -eq 0) {
+          $existingTag = git tag --list $tag
+          if ($existingTag) {
+              $existingTagCommit = git rev-list -n 1 $tag
+              if ($LASTEXITCODE -ne 0) {
+                  throw "Release tag $tag could not be resolved."
+              }
               if ($existingTagCommit -ne '${{ github.sha }}') {
                   throw "Release tag $tag already points to another commit."
               }
