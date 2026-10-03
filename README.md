@@ -1,4 +1,4 @@
-# TierLevelIsolation
+# TierLevelIsolation 1.0
 
 ## Overview
 
@@ -21,6 +21,10 @@ TierLevelIsolation is licensed under the [Apache License 2.0](./LICENSE). Third-
 ## Changelog
 
 See [CHANGELOG.md](./CHANGELOG.md) for the project change history.
+
+## Developer documentation
+
+See [Developer.md](./Developer.md) for the repository architecture, script execution flows, configuration model, development process, PowerShell Gallery publication, and automated release workflow.
 
 ## Installation and activation
 
@@ -152,70 +156,7 @@ After activation, verify the first runs in the Windows Application event log and
 
 Monitoring is done in the Application Event log. For detailed information, a debug log file is also created. The path to the log file is logged as Windows events Source:TierLevelIsolation 1000 or Source:TierLevelIsolation 2000.
 
-Only Information, Warning, and Error events are written to the Windows Application log. Events with severity Debug are written only to the text log file and are documented in `EventID.md`.
-
-## Computer management
-
-To monitor the computer management functions, look for the following events in the event log:
-
-| Event ID | Type | Description | Trigger |
-| --- | --- | --- | --- |
-| 1000 | Information | Computer management script started | The script starts. For the default scheduled task, this event normally appears every 10 minutes. |
-| 1003 | Error | Unexpected error while updating the Tier 0 computer group | An unhandled error occurs while processing a Tier 0 computer OU. |
-| 1004 | Error | AD Web Service connection failed during computer management | A configured domain cannot be contacted while computer objects are processed. |
-| 1101 | Error | Default configuration was not found | Neither the default SYSVOL configuration nor an Active Directory configuration is available. |
-| 1102 | Error | Configuration file could not be read | The specified configuration file exists but does not return a configuration object. |
-| 1103 | Error | Configuration file was not found | The path supplied with `ConfigFile` does not exist. |
-| 1104 | Error | Unexpected error while reading the configuration | An unhandled exception occurs while loading or parsing the configuration. |
-| 1200 | Error | Tier 0 computer group was not found | The configured Tier 0 computer group cannot be resolved; processing is aborted. |
-| 1202 | Error | Tier 1 computer group was not found | The configured Tier 1 computer group cannot be resolved. |
-| 1203 | Error | AD Web Service is unavailable | Active Directory cannot be queried while the computer groups are initialized. |
-| 1204 | Warning | Tier 0 computer is not listed in the global catalog | A Tier 0 group update fails because the required object is not yet available through the global catalog. |
-| 1300 | Warning | Tier 0 computer OU is missing | A configured Tier 0 computer OU cannot be found in a target domain. |
-| 1302 | Information | Computer is added to the Tier 0 computer group | A computer in a configured Tier 0 OU is not yet a member of the Tier 0 computer group. |
-| 1304 | Warning | Computer is removed from the Tier 0 computer group | A group member is no longer located in an allowed Tier 0 computer OU. |
-| 1306 | Warning | Unexpected computers cannot be verified | AD Web Service is unavailable while existing group members are checked against allowed OUs. |
-| 1400 | Warning | Tier 1 computer OU is missing | A configured Tier 1 computer OU cannot be found in a target domain. |
-| 1401 | Information | Computer is added to the Tier 1 computer group | A computer in a configured Tier 1 OU is not yet a member of the Tier 1 computer group. |
-| 1402 | Error | Unexpected error while updating the Tier 1 computer group | An unhandled error occurs while Tier 1 computer objects are processed. |
-| 1403 | Warning | Computer is removed from the Tier 1 computer group | A group member is no longer located in an allowed Tier 1 computer OU. |
-| 1404 | Warning | Tier 1 computer is not listed in the global catalog | A Tier 1 group update fails because the required object is not yet available through the global catalog. |
-
-## User management
-
-To monitor the user management functions, look for the following events in the event log:
-
-| Event ID | Type | Description | Trigger |
-| --- | --- | --- | --- |
-| 2000 | Information | User management script started | The script starts. For the default scheduled task, this event normally appears every 10 minutes. |
-| 2001 | Warning | Configured log path is invalid | The configured text-log directory does not exist; the script uses the current user's local application data directory. |
-| 2002 | Error | Default configuration was not found | Neither the default SYSVOL configuration nor an Active Directory configuration is available. |
-| 2003 | Error | Configuration file could not be read | The specified configuration file exists but does not return a configuration object. |
-| 2004 | Error | Configuration file was not found | The path supplied with `ConfigFile` does not exist. |
-| 2005 | Error | Unexpected error while reading the configuration | An unhandled exception occurs while loading or parsing the configuration. |
-| 2006 | Error | Requested scope conflicts with configured scope | The `Scope` parameter requests a tier that is disabled in the configuration. |
-| 2101 | Error | Kerberos Authentication Policy was not found | The configured authentication policy cannot be resolved in Active Directory. |
-| 2102 | Warning | User OU is missing | A configured Tier 0 or Tier 1 user OU cannot be found in a target domain. |
-| 2103 | Warning | Built-in Administrator is located in a Tier 0 user OU | The built-in Administrator account with RID 500 is found in a managed OU and is intentionally skipped. |
-| 2104 | Information | Kerberos Authentication Policy is assigned | A managed user does not have the configured authentication policy. |
-| 2105 | Information | User is marked as sensitive and cannot be delegated | The AccountNotDelegated flag is not set on a managed user and is enabled by the script. |
-| 2106 | Information | User is added to Protected Users | Protected Users management is enabled and a managed user is not yet a member. |
-| 2107 | Error | Access denied while changing a user attribute | Active Directory rejects an update to a managed user. |
-| 2108 | Error | Active Directory identity was not found | Users or another required identity cannot be enumerated. |
-| 2109 | Error | Unexpected error during user isolation | An unhandled exception occurs while authentication policy or account settings are applied. |
-| 2200 | Warning | Configured group SID is unavailable | A privileged group cannot be resolved from its configured SID. |
-| 2201 | Warning | User is removed from a privileged group | Privileged-group cleanup finds a user outside the allowed administrator and service-account OUs. |
-| 2202 | Error | AD Web Service is unavailable during group cleanup | The script cannot contact Active Directory while removing a privileged group member. |
-| 2203 | Error | User could not be removed from a privileged group | Active Directory returns an error while a privileged group membership is removed. |
-| 2204 | Error | Unexpected error while processing a privileged group member | An unhandled exception occurs during privileged-group cleanup. |
-| 2208 | Warning | Additional privileged group is invalid or was not found | A configured additional group SID is malformed or cannot be resolved in any configured domain. |
-| 2209 | Warning | Additional privileged group could not be processed | A general error occurs while an additional configured group is resolved. |
-| 2210 | Warning | Domain cannot be contacted for an additional group | AD Web Service is unavailable while an additional group SID is resolved in a configured domain. |
-| 2211 | Information | `adminCount` is set on a nested Tier 0 group | A nested Tier 0 group does not have `adminCount` set to `1`. |
-| 2212 | Error | `adminCount` could not be set on a nested Tier 0 group | The nested group cannot be read or updated. |
-| 2213 | Error | DNS domain could not be resolved for a nested group | The naming-context cross-reference for a nested group does not provide a DNS domain name. |
-| 2302 | Warning | Domain for a NetBIOS name was not found | A distinguished name contains a NetBIOS domain that cannot be mapped to a forest DNS domain. |
-| 2303 | Error | NetBIOS name could not be converted to a DNS domain | An error occurs while the forest cross-reference is queried. |
+Only Information, Warning, and Error events are written to the Windows Application log. Events with severity Debug are written only to the text log file. See [EventID.md](./EventID.md) for the complete event ID catalog for computer and user management.
 
 ## Troubleshooting
 
@@ -437,30 +378,3 @@ Verify the password and account state and ensure the account is permitted to log
 ##### The registry configuration check fails
 
 `-CheckDomainControllerConfiguration` uses the Remote Registry API. Confirm that the Remote Registry service and firewall rules permit access and that the executing account can read the remote HKLM registry hive. This check is optional and independent of the ticket-based FAST verification.
-
-## Publish to PowerShell Gallery
-
-Validate the module package without uploading it:
-
-```powershell
-.\publish.ps1
-```
-
-For a release, create an API key on PowerShell Gallery and enter it without placing it in the PowerShell command history:
-
-```powershell
-$secureKey = Read-Host 'PSGallery API key' -AsSecureString
-$env:PSGALLERY_API_KEY = [System.Net.NetworkCredential]::new('', $secureKey).Password
-.\publish.ps1 -Publish
-Remove-Item Env:PSGALLERY_API_KEY
-```
-
-Increment `ModuleVersion` in `module\TierLevelIsolation.psd1` before every subsequent release because PowerShell Gallery versions are immutable.
-
-## Automated release workflow
-
-All code changes are made and tested on the `Dev` branch. A push to `Dev` does not synchronize or release anything. When the tested changes are ready, start the **Sync Dev to main** workflow manually from the GitHub Actions page. The workflow opens or updates a Dev-to-main pull request and marks the selected Dev revision as ready for synchronization.
-
-Review and merge the synchronization pull request manually. The protected `main` branch accepts changes only through this Dev-to-main pull request. Its merge commit triggers the **Release** workflow, which creates a GitHub release and a ZIP archive with a version in the `1.0.YYYYMMDD.counter` format.
-
-Only a push to `main` can publish to PowerShell Gallery. When that main commit changes files under `module`, the workflow publishes the module version declared in `module\TierLevelIsolation.psd1`. Pushes and commits on `Dev` or any other branch never publish packages. Configure a GitHub Actions repository secret named `PSGALLERY_API_KEY` before merging module changes. The workflow fails the module-publication job if the secret is missing or that module version already exists in PowerShell Gallery; GitHub release creation remains independent.
