@@ -53,8 +53,10 @@
     in PowerShell command history.
 
     Microsoft.PowerShell.PSResourceGet must be installed and provide Publish-PSResource. Dependency
-    repository checks are skipped because ActiveDirectory is a Windows RSAT module declared as an
-    external dependency and is not published to PowerShell Gallery.
+    repository checks and the cmdlet's internal Test-ModuleManifest call are skipped because
+    ActiveDirectory is a Windows RSAT module declared as an external dependency and is not
+    published to PowerShell Gallery. This script validates the manifest data, version, and declared
+    root module before publication.
 
     PowerShell Gallery does not permit overwriting an existing module version. Increment
     ModuleVersion in module\TierLevelIsolation.psd1 before publishing a new release.
@@ -119,6 +121,7 @@ try {
         Path       = $modulePath
         Repository = $Repository
         SkipDependenciesCheck = $true
+        SkipModuleManifestValidate = $true
         Verbose    = $true
     }
 
