@@ -1,0 +1,52 @@
+name: Update Dev changelog
+
+on:
+  push:
+    branches:
+      - Dev
+    paths-ignore:
+      - CHANGELOG.md
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-dev-changelog
+  cancel-in-progress: false
+
+jobs:
+  update-changelog:
+    name: Record Dev commits
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Dev
+        uses: actions/checkout@v4
+        with:
+          ref: Dev
+          fetch-depth: 0
+
+      - name: Add commit titles to Unreleased
+        shell: pwsh
+        run: |
+          git pull --ff-only origin Dev
+          ./.github/scripts/Update-DevChangelog.ps1 `
+            -FromCommit '${{ github.event.before }}' `
+            -ToCommit '${{ github.event.after }}'
+
+      - name: Commit and push changelog
+        shell: pwsh
+        run: |
+          git diff --quiet -- CHANGELOG.md
+          if ($LASTEXITCODE -eq 0) {
+              Write-Host 'The changelog is already current.'
+              return
+          }
+          if ($LASTEXITCODE -ne 1) {
+              throw "git diff failed with exit code $LASTEXITCODE."
+          }
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add CHANGELOG.md
+          git commit -m 'Update changelog for Dev commits [skip changelog]'
+          git push origin HEAD:Dev

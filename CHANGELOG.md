@@ -8,6 +8,21 @@ All notable changes to this project are documented in this file. Historical entr
 
 ### Added
 
+- Added a developer guide covering the repository architecture, script execution flows, configuration model, development process, versioning, validation, PowerShell Gallery publication, and automated release workflow. (cf83481)
+
+### Changed
+
+- Added the current major and minor project version to the README heading.
+- Automated the addition of undocumented Dev commit titles to the Unreleased changelog section.
+- Changed the manual Dev-to-main synchronization to consolidate all changelog entries since the latest main release into one new release version.
+- Changed the release workflow to use the version prepared in the changelog instead of independently generating another version.
+- Moved developer-focused publication and release documentation from the README to the developer guide.
+- Replaced the duplicated event ID tables in the README with a reference to the central event ID catalog.
+
+## [1.0.20261003.1] - 2026-10-03
+
+### Added
+
 - Added this GitHub-compatible project changelog and linked it from the README.
 - Added manually initiated Dev-to-main synchronization, automatic GitHub release creation for main commits, and conditional PowerShell Gallery publication workflows.
 

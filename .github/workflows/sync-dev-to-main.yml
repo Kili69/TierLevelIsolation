@@ -13,19 +13,107 @@ jobs:
     name: Prepare manual Dev sync
     runs-on: ubuntu-latest
     steps:
+      - name: Check out Dev
+        uses: actions/checkout@v4
+        with:
+          ref: Dev
+          fetch-depth: 0
+
+      - name: Update Dev and finalize changelog
+        id: prepare
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin main Dev --tags --force
+
+          git merge-base --is-ancestor origin/main HEAD
+          if ($LASTEXITCODE -eq 1) {
+              git merge --no-edit origin/main
+              if ($LASTEXITCODE -ne 0) {
+                  throw 'Dev could not be updated from main.'
+              }
+          }
+          elseif ($LASTEXITCODE -ne 0) {
+              throw "git merge-base failed with exit code $LASTEXITCODE."
+          }
+
+          $aheadBy = [int](git rev-list --count origin/main..HEAD)
+          if ($LASTEXITCODE -ne 0) {
+              throw 'Unable to compare Dev with main.'
+          }
+          if ($aheadBy -eq 0) {
+              'has_changes=false' >> $env:GITHUB_OUTPUT
+              Write-Host 'Dev contains no commits that need to be synchronized to main.'
+              return
+          }
+
+          $mergeBase = git merge-base origin/main HEAD
+          ./.github/scripts/Update-DevChangelog.ps1 `
+            -FromCommit $mergeBase `
+            -ToCommit HEAD
+
+          $releasedVersions = @(
+              git tag --merged origin/main --list 'v*' |
+                  ForEach-Object {
+                      if ($_ -match '^v(?<Version>\d+\.\d+\.\d{8}\.\d+)$') {
+                          [pscustomobject]@{
+                              Tag = $_
+                              Version = [version]$Matches.Version
+                          }
+                      }
+                  }
+          )
+          if ($releasedVersions.Count -eq 0) {
+              throw 'No versioned release tag reachable from main was found.'
+          }
+
+          $baseVersion = ($releasedVersions |
+                  Sort-Object Version -Descending |
+                  Select-Object -First 1).Version
+          $releaseDate = (Get-Date).ToUniversalTime()
+          $datePart = $releaseDate.ToString('yyyyMMdd')
+          $prefix = "$($baseVersion.Major).$($baseVersion.Minor).$datePart."
+          $counters = @(
+              git tag --list "v$prefix*" |
+                  ForEach-Object {
+                      if ($_ -match "^v$([regex]::Escape($prefix))(?<Counter>\d+)$") {
+                          [int]$Matches.Counter
+                      }
+                  }
+          )
+          $counter = if ($counters.Count -gt 0) {
+              ($counters | Measure-Object -Maximum).Maximum + 1
+          }
+          else {
+              1
+          }
+          $releaseVersion = [version]"$prefix$counter"
+
+          ./.github/scripts/Finalize-Changelog.ps1 `
+            -BaseVersion $baseVersion `
+            -ReleaseVersion $releaseVersion `
+            -ReleaseDate $releaseDate.ToString('yyyy-MM-dd')
+
+          git add CHANGELOG.md
+          git commit -m "Finalize changelog for $releaseVersion"
+          if ($LASTEXITCODE -ne 0) {
+              throw 'The finalized changelog could not be committed.'
+          }
+          git push origin HEAD:Dev
+          if ($LASTEXITCODE -ne 0) {
+              throw 'The finalized Dev branch could not be pushed.'
+          }
+
+          'has_changes=true' >> $env:GITHUB_OUTPUT
+          "release_version=$releaseVersion" >> $env:GITHUB_OUTPUT
+
       - name: Create or update pull request
+        if: steps.prepare.outputs.has_changes == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ steps.prepare.outputs.release_version }}
         run: |
-          comparison="$(gh api "repos/${GITHUB_REPOSITORY}/compare/main...Dev")"
-          ahead_by="$(jq -r '.ahead_by' <<<"${comparison}")"
-          comparison_status="$(jq -r '.status' <<<"${comparison}")"
-
-          if [ "${ahead_by}" -eq 0 ]; then
-            echo "Dev contains no commits that need to be synchronized to main."
-            exit 0
-          fi
-
           existing_pr="$(gh pr list --repo "${GITHUB_REPOSITORY}" --base main --head Dev --state open --json number --jq '.[0].number')"
           if [ -n "${existing_pr}" ]; then
             echo "Sync pull request #${existing_pr} is already open."
@@ -36,42 +124,17 @@ jobs:
                 --repo "${GITHUB_REPOSITORY}" \
                 --base main \
                 --head Dev \
-                --title "Sync Dev to main" \
-                --body "Manually started synchronization pull request from \`Dev\` to \`main\`. Review the tested Dev changes and merge this pull request manually to create a release."
+                --title "Sync Dev to main for ${RELEASE_VERSION}" \
+                --body "Manually started synchronization pull request from \`Dev\` to \`main\`. The changelog consolidates all changes since the previous release into \`${RELEASE_VERSION}\`. Review the tested Dev changes and merge this pull request manually to create the release."
             )"
             pull_request="${pull_request_url##*/}"
           fi
 
-          if [ "${comparison_status}" != "ahead" ]; then
-            echo "Dev is not based on the current main commit. Updating the pull request branch."
-            previous_head="$(gh pr view "${pull_request}" --repo "${GITHUB_REPOSITORY}" --json headRefOid --jq '.headRefOid')"
-            gh pr update-branch "${pull_request}" --repo "${GITHUB_REPOSITORY}"
-
-            updated_head=""
-            for attempt in $(seq 1 30); do
-              updated_head="$(gh pr view "${pull_request}" --repo "${GITHUB_REPOSITORY}" --json headRefOid --jq '.headRefOid')"
-              if [ "${updated_head}" != "${previous_head}" ]; then
-                break
-              fi
-              sleep 2
-            done
-
-            if [ -z "${updated_head}" ] || [ "${updated_head}" = "${previous_head}" ]; then
-              echo "The pull request head did not change after the branch update." >&2
-              exit 1
-            fi
-
-            gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${updated_head}" \
-              -f state=success \
-              -f context="Dev source branch" \
-              -f description="Dev was updated from protected main by the sync workflow." >/dev/null
-          else
-            current_head="$(gh pr view "${pull_request}" --repo "${GITHUB_REPOSITORY}" --json headRefOid --jq '.headRefOid')"
-            gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${current_head}" \
-              -f state=success \
-              -f context="Dev source branch" \
-              -f description="Dev was selected by the manually started sync workflow." >/dev/null
-          fi
+          current_head="$(gh pr view "${pull_request}" --repo "${GITHUB_REPOSITORY}" --json headRefOid --jq '.headRefOid')"
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${current_head}" \
+            -f state=success \
+            -f context="Dev source branch" \
+            -f description="Dev and its consolidated changelog were prepared by the manual sync workflow." >/dev/null
 
           pull_request_url="$(gh pr view "${pull_request}" --repo "${GITHUB_REPOSITORY}" --json url --jq '.url')"
           echo "The synchronization pull request is ready for manual review and merge: ${pull_request_url}"

@@ -24,50 +24,39 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check for an existing release tag
+      - name: Read prepared release version
         id: release_state
         shell: pwsh
         run: |
           git fetch --tags --force
-          $existingTag = git tag --points-at '${{ github.sha }}' --list 'v1.0.*' | Select-Object -First 1
-          if ($existingTag) {
-              Write-Host "Commit ${{ github.sha }} already has release tag $existingTag."
+          $releaseHeading = Get-Content CHANGELOG.md |
+              Where-Object { $_ -match '^## \[(?<Version>1\.0\.\d{8}\.\d+)\] - \d{4}-\d{2}-\d{2}$' } |
+              Select-Object -First 1
+          if (-not $releaseHeading -or $releaseHeading -notmatch '^## \[(?<Version>1\.0\.\d{8}\.\d+)\]') {
+              throw 'CHANGELOG.md does not contain a prepared 1.0 release directly after Unreleased.'
+          }
+
+          $version = $Matches.Version
+          $tag = "v$version"
+          $existingTagCommit = git rev-list -n 1 $tag 2>$null
+          if ($LASTEXITCODE -eq 0) {
+              if ($existingTagCommit -ne '${{ github.sha }}') {
+                  throw "Release tag $tag already points to another commit."
+              }
+              Write-Host "Commit ${{ github.sha }} already has release tag $tag."
               'created=false' >> $env:GITHUB_OUTPUT
           }
           else {
               'created=true' >> $env:GITHUB_OUTPUT
           }
-
-      - name: Determine release version
-        if: steps.release_state.outputs.created == 'true'
-        id: version
-        shell: pwsh
-        run: |
-          $date = (Get-Date).ToUniversalTime().ToString('yyyyMMdd')
-          $prefix = "v1.0.$date."
-          $counters = @(
-              git tag --list "$prefix*" |
-                  ForEach-Object {
-                      if ($_ -match "^$([regex]::Escape($prefix))(?<Counter>\d+)$") {
-                          [int]$Matches.Counter
-                      }
-                  }
-          )
-          $counter = if ($counters.Count -gt 0) {
-              ($counters | Measure-Object -Maximum).Maximum + 1
-          }
-          else {
-              1
-          }
-          $version = "1.0.$date.$counter"
           "version=$version" >> $env:GITHUB_OUTPUT
-          "tag=v$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
 
       - name: Create release archive
         if: steps.release_state.outputs.created == 'true'
         shell: pwsh
         run: |
-          $archive = "TierLevelIsolation-${{ steps.version.outputs.version }}.zip"
+          $archive = "TierLevelIsolation-${{ steps.release_state.outputs.version }}.zip"
           git archive --format=zip --output=$archive HEAD
 
       - name: Create GitHub release
@@ -75,11 +64,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ steps.version.outputs.tag }}" \
-            "TierLevelIsolation-${{ steps.version.outputs.version }}.zip#TierLevelIsolation ${{ steps.version.outputs.version }}" \
+          gh release create "${{ steps.release_state.outputs.tag }}" \
+            "TierLevelIsolation-${{ steps.release_state.outputs.version }}.zip#TierLevelIsolation ${{ steps.release_state.outputs.version }}" \
             --repo "${GITHUB_REPOSITORY}" \
             --target "${GITHUB_SHA}" \
-            --title "TierLevelIsolation ${{ steps.version.outputs.version }}" \
+            --title "TierLevelIsolation ${{ steps.release_state.outputs.version }}" \
             --generate-notes
 
   publish-module:

@@ -61,7 +61,10 @@ Active Directory remains the source of truth for domains, OUs, groups, users, co
 | `ScheduledTasks.xml` | Reference scheduled-task definition used by the solution. |
 | `GPO/` | Importable Group Policy backup containing the production scheduled-task preferences. |
 | `.github/workflows/sync-dev-to-main.yml` | Manually prepares the protected Dev-to-main pull request. |
+| `.github/workflows/update-dev-changelog.yml` | Adds undocumented Dev commit titles to the Unreleased changelog section. |
 | `.github/workflows/release.yml` | Creates a release for every push to `main` and conditionally publishes the module. |
+| `.github/scripts/Update-DevChangelog.ps1` | Detects Dev commits that did not directly update the changelog and records their titles. |
+| `.github/scripts/Finalize-Changelog.ps1` | Consolidates all changelog categories since the latest main release into one target release. |
 | `CHANGELOG.md` | Records user-visible changes by release. |
 | `HISTORY.md` | Preserves detailed historical project changes. |
 | `LICENSE` and `NOTICE` | Define the Apache 2.0 license and third-party notices. |
@@ -237,9 +240,9 @@ All code changes are developed and tested on `Dev`. Direct development on `main`
 3. Update directly related documentation.
 4. Update file-specific versions for every changed file that already contains a current version.
 5. Add a new version-history entry only when that file already maintains version history.
-6. Update `CHANGELOG.md` for user-visible changes.
-7. Commit and push to `Dev`.
-8. Confirm that a Dev push does not create a release or publish a package.
+6. Use a meaningful commit title. Update `CHANGELOG.md` directly when a curated entry is preferable to the commit title.
+7. Commit and push to `Dev`. The **Update Dev changelog** workflow adds undocumented commit titles under `Unreleased` in a separate bot commit.
+8. Confirm that a Dev push does not create a release or publish a package. It may only create the expected changelog bot commit.
 9. When the accumulated changes are tested, manually start **Sync Dev to main**.
 10. Review and manually merge the resulting Dev-to-main pull request.
 
@@ -264,7 +267,7 @@ When committing:
 - Do not rewrite historical entries.
 - Keep the README title aligned with the current major/minor project version.
 
-The GitHub release version and the module version are related but independent. A GitHub release receives the next `1.0.YYYYMMDD.counter` tag generated for a `main` commit. PowerShell Gallery publishes the immutable `ModuleVersion` declared in the module manifest.
+The GitHub release version and the module version are related but independent. The manual sync workflow reserves the next `1.0.YYYYMMDD.counter` version and writes it to the changelog. The later `main` push uses that exact version for the GitHub tag and release. PowerShell Gallery publishes the immutable `ModuleVersion` declared in the module manifest.
 
 ## Validation expectations
 
@@ -304,23 +307,25 @@ The automated workflow requires a repository Actions secret named `PSGALLERY_API
 
 ## Automated release workflow
 
-All code changes are made and tested on the `Dev` branch. A push to `Dev` does not synchronize or release anything. When the tested changes are ready, start the **Sync Dev to main** workflow manually from the GitHub Actions page.
+All code changes are made and tested on the `Dev` branch. A push to `Dev` runs **Update Dev changelog**, which records commit titles not already represented by a direct changelog edit. Its changelog-only bot commit cannot publish or synchronize anything. When the tested changes are ready, start the **Sync Dev to main** workflow manually from the GitHub Actions page.
 
 The synchronization workflow:
 
-1. Compares `Dev` with `main`.
+1. Updates `Dev` from protected `main` when the branches have diverged.
 2. Exits without changes when no Dev commits need promotion.
-3. Opens or reuses a Dev-to-main pull request.
-4. Updates `Dev` from protected `main` when the branches have diverged.
-5. Sets the required `Dev source branch` commit status.
-6. Leaves review and merge as explicit manual actions.
+3. Adds any still undocumented Dev commit titles to `Unreleased`.
+4. Determines the latest release tag reachable from `main` and reserves the next major/minor/date/counter version.
+5. Combines `Unreleased` and any intermediate Dev release sections by changelog category into that one target version.
+6. Commits and pushes the consolidated changelog to `Dev`.
+7. Opens or reuses a Dev-to-main pull request and sets the required `Dev source branch` status.
+8. Leaves review and merge as explicit manual actions.
 
 The protected `main` branch accepts changes only through the Dev-to-main pull request. Merging it creates a push to `main`, which triggers the **Release** workflow.
 
 The release workflow:
 
-1. Verifies that the commit does not already have a matching release tag.
-2. Generates the next `v1.0.YYYYMMDD.counter` tag.
+1. Reads the prepared version from the first released section after `Unreleased`.
+2. Verifies that the corresponding tag does not already point to another commit.
 3. Creates a ZIP archive from the exact repository commit.
 4. Creates a GitHub release and generated release notes.
 5. Detects whether the main push changed files under `module`.
