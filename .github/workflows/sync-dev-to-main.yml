@@ -1,0 +1,45 @@
+name: Sync Dev to main
+
+on:
+  push:
+    branches:
+      - Dev
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  dev-source:
+    name: Dev source branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm source branch
+        run: echo "The main sync source is ${GITHUB_REF_NAME}."
+
+  open-sync-pull-request:
+    name: Open sync pull request
+    needs: dev-source
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create pull request when needed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          existing_pr="$(gh pr list --repo "${GITHUB_REPOSITORY}" --base main --head Dev --state open --json number --jq '.[0].number')"
+          if [ -n "${existing_pr}" ]; then
+            echo "Sync pull request #${existing_pr} is already open."
+            pull_request="${existing_pr}"
+          else
+            pull_request_url="$(
+              gh pr create \
+                --repo "${GITHUB_REPOSITORY}" \
+                --base main \
+                --head Dev \
+                --title "Sync Dev to main" \
+                --body "Automated synchronization pull request from \`Dev\` to \`main\`. A successful Dev status check merges this pull request and creates a release."
+            )"
+            pull_request="${pull_request_url##*/}"
+          fi
+
+          gh pr merge "${pull_request}" --repo "${GITHUB_REPOSITORY}" --auto --merge
