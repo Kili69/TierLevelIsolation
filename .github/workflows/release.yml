@@ -1,0 +1,122 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Create GitHub release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine release version
+        id: version
+        shell: pwsh
+        run: |
+          git fetch --tags --force
+          $date = (Get-Date).ToUniversalTime().ToString('yyyyMMdd')
+          $prefix = "v0.1.$date."
+          $counters = @(
+              git tag --list "$prefix*" |
+                  ForEach-Object {
+                      if ($_ -match "^$([regex]::Escape($prefix))(?<Counter>\d+)$") {
+                          [int]$Matches.Counter
+                      }
+                  }
+          )
+          $counter = if ($counters.Count -gt 0) {
+              ($counters | Measure-Object -Maximum).Maximum + 1
+          }
+          else {
+              1
+          }
+          $version = "0.1.$date.$counter"
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=v$version" >> $env:GITHUB_OUTPUT
+
+      - name: Create release archive
+        shell: pwsh
+        run: |
+          $archive = "TierLevelIsolation-${{ steps.version.outputs.version }}.zip"
+          git archive --format=zip --output=$archive HEAD
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            "TierLevelIsolation-${{ steps.version.outputs.version }}.zip#TierLevelIsolation ${{ steps.version.outputs.version }}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${GITHUB_SHA}" \
+            --title "TierLevelIsolation ${{ steps.version.outputs.version }}" \
+            --generate-notes
+
+  publish-module:
+    name: Publish changed PowerShell module
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect module changes
+        id: module_changes
+        shell: pwsh
+        run: |
+          $before = '${{ github.event.before }}'
+          $zeroCommit = '0000000000000000000000000000000000000000'
+          if ($before -eq $zeroCommit) {
+              $changed = $true
+          }
+          else {
+              git diff --quiet $before '${{ github.sha }}' -- module
+              $changed = $LASTEXITCODE -eq 1
+          }
+          "changed=$($changed.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+      - name: Install PSResourceGet
+        if: steps.module_changes.outputs.changed == 'true'
+        shell: pwsh
+        run: |
+          Install-PSResource -Name Microsoft.PowerShell.PSResourceGet -Version 1.2.0 -Repository PSGallery -TrustRepository -Scope CurrentUser
+
+      - name: Verify module version is unpublished
+        if: steps.module_changes.outputs.changed == 'true'
+        shell: pwsh
+        run: |
+          Import-Module Microsoft.PowerShell.PSResourceGet -MinimumVersion 1.2.0 -Force
+          $manifest = Import-PowerShellDataFile '.\module\TierLevelIsolation.psd1'
+          $published = Find-PSResource -Name TierLevelIsolation -Version $manifest.ModuleVersion -Repository PSGallery -ErrorAction SilentlyContinue
+          if ($published) {
+              throw "TierLevelIsolation $($manifest.ModuleVersion) already exists in PSGallery. Increment ModuleVersion before merging to main."
+          }
+
+      - name: Publish module to PowerShell Gallery
+        if: steps.module_changes.outputs.changed == 'true'
+        shell: pwsh
+        env:
+          PSGALLERY_API_KEY: ${{ secrets.PSGALLERY_API_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:PSGALLERY_API_KEY)) {
+              throw 'Repository secret PSGALLERY_API_KEY is required when module files change.'
+          }
+          .\publish.ps1 -Publish
+
+      - name: Skip unchanged module
+        if: steps.module_changes.outputs.changed != 'true'
+        shell: pwsh
+        run: Write-Host 'No files under module changed; PSGallery publication was skipped.'
