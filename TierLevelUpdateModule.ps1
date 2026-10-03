@@ -28,6 +28,8 @@
             Updated version for initial repository publication
         Version 0.1.20261003.1
             Relicensed the project under Apache License 2.0 and moved the disclaimer to README.md
+        Version 1.0.20261003.2
+            Promoted the project to version 1.0
 
 
 #>

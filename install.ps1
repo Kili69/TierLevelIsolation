@@ -190,6 +190,8 @@ Download: https://github.com/Kili69/TierLevelIsolation
         Relicensed the project under Apache License 2.0 and moved the disclaimer to README.md
     Version 0.2.20261003.2
         Corrected spelling and grammar in Write-Host messages
+    Version 1.0.20261003.3
+        Promoted the project to version 1.0
 
 #>
 param(
@@ -475,7 +477,7 @@ function Get-InstallationParameterValue {
 #####################################################################################################################################################################################
 #region Installation logging, constants, and default values
 #####################################################################################################################################################################################
-$ScriptVersion = "0.2.20261003.2"
+$ScriptVersion = "1.0.20261003.3"
 $ObjectParameterMode = $PSBoundParameters.ContainsKey("InstallationParameters")
 if ($ObjectParameterMode) {
     $InstallPSModuleOnly = [bool](Get-InstallationParameterValue -InputObject $InstallationParameters -Name "InstallPSModuleOnly" -DefaultValue ([bool]$InstallPSModuleOnly))

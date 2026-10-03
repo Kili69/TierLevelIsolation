@@ -84,6 +84,8 @@ Download: https://github.com/Kili69/TierLevelIsolation
         Read adminCount explicitly before updating nested Tier 0 groups
     Version 0.2.20261003.1
         Relicensed the project under Apache License 2.0 and moved the disclaimer to README.md
+    Version 1.0.20261003.2
+        Promoted the project to version 1.0
 
     exist codes:
         0x3E8 - The script terminated with a unexpected error
@@ -544,7 +546,7 @@ function RemoveUserFromAdditionalGroups{
 # Main program starts here
 ##############################################################################################################################
 #script Version 
-$ScriptVersion = "0.2.20261003.1"
+$ScriptVersion = "1.0.20261003.2"
 #Validate and create event log source if required
 #region Script Constants and Configuration Variables
 

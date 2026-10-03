@@ -2,7 +2,7 @@
 
 # Changelog
 
-All notable changes to this project are documented in this file. Historical entries available before this changelog was introduced were imported from `Test-KerberosArmoring.ps1`. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Release identifiers follow the existing `0.1.YYYYMMDD.revision` convention.
+All notable changes to this project are documented in this file. Historical entries available before this changelog was introduced were imported from `Test-KerberosArmoring.ps1`. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Release identifiers use the `major.minor.YYYYMMDD.revision` convention.
 
 ## [Unreleased]
 
@@ -10,6 +10,10 @@ All notable changes to this project are documented in this file. Historical entr
 
 - Added this GitHub-compatible project changelog and linked it from the README.
 - Added manually initiated Dev-to-main synchronization, automatic GitHub release creation for main commits, and conditional PowerShell Gallery publication workflows.
+
+### Changed
+
+- Promoted all active scripts, the PowerShell module, and future GitHub releases to version 1.0.
 
 ## [0.1.20261002.2] - 2026-10-02
 

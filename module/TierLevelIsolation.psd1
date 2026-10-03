@@ -12,10 +12,10 @@
     
 
     # Script module or binary module file associated with this manifest.
-    RootModule = '0.1\TierLevelIsolation.psm1'
+    RootModule = '1.0\TierLevelIsolation.psm1'
     
     # Version number of this module.
-    ModuleVersion = '0.1.20261003.1'
+    ModuleVersion = '1.0.20261003.2'
     
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -136,7 +136,7 @@
         # IconUri = ''
 
         # ReleaseNotes of this module
-        ReleaseNotes = 'Relicensed the project under Apache License 2.0 and moved the project disclaimer to README.md.'
+        ReleaseNotes = 'Promoted TierLevelIsolation to version 1.0.'
         
         RequireLicenseAcceptance = $false
 

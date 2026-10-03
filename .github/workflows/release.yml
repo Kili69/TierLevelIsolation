@@ -36,7 +36,7 @@ jobs:
         shell: pwsh
         run: |
           git fetch --tags --force
-          $existingTag = git tag --points-at '${{ github.sha }}' --list 'v0.1.*' | Select-Object -First 1
+          $existingTag = git tag --points-at '${{ github.sha }}' --list 'v1.0.*' | Select-Object -First 1
           if ($existingTag) {
               Write-Host "Commit ${{ github.sha }} already has release tag $existingTag."
               'created=false' >> $env:GITHUB_OUTPUT
@@ -51,7 +51,7 @@ jobs:
         shell: pwsh
         run: |
           $date = (Get-Date).ToUniversalTime().ToString('yyyyMMdd')
-          $prefix = "v0.1.$date."
+          $prefix = "v1.0.$date."
           $counters = @(
               git tag --list "$prefix*" |
                   ForEach-Object {
@@ -66,7 +66,7 @@ jobs:
           else {
               1
           }
-          $version = "0.1.$date.$counter"
+          $version = "1.0.$date.$counter"
           "version=$version" >> $env:GITHUB_OUTPUT
           "tag=v$version" >> $env:GITHUB_OUTPUT
 

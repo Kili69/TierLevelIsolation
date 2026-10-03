@@ -197,3 +197,12 @@ This file provides a chronological summary of the changes documented in the scri
 - **TierLevelIsolation.psm1** (`0.1.20260828.1` through `0.1.20260828.2`): Added complete module-level, function-level, and inline documentation.
 - **TierLevelIsolation.psd1** (`0.1.20260828.2`): Updated the manifest version, minimum PowerShell version, and release notes.
 - **TierLevelUserManagement.ps1** (`0.2.20260828.1`): Reads `adminCount` explicitly for nested Tier 0 groups before applying a required update.
+
+### 2026-10-03
+
+- **install.ps1** (`1.0.20261003.3`): Promoted the installer to version 1.0.
+- **Test-KerberosArmoring.ps1** (`1.0.20261003.2`): Promoted the Kerberos Armoring test script to version 1.0.
+- **TierLevelComputerManagement.ps1** (`1.0.20261003.2`): Promoted computer management to version 1.0.
+- **TierLevelUpdateModule.ps1** (`1.0.20261003.2`): Promoted module updates to version 1.0.
+- **TierLevelUserManagement.ps1** (`1.0.20261003.2`): Promoted user management to version 1.0.
+- **TierLevelIsolation.psm1** and **TierLevelIsolation.psd1** (`1.0.20261003.2`): Promoted the PowerShell module to version 1.0 and moved the root module to the `1.0` directory.

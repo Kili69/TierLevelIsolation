@@ -56,6 +56,8 @@ Download: https://github.com/Kili69/TierLevelIsolation
         Aligned event IDs and event source handling with Windows Event Log guidance
     Version 0.2.20261003.1
         Relicensed the project under Apache License 2.0 and moved the disclaimer to README.md
+    Version 1.0.20261003.2
+        Promoted the project to version 1.0
 
     Exit codes:
         0x3E8 - a general error occurred while reading the configuration file
@@ -214,7 +216,7 @@ $GlobalCatalog = (Get-ADDomainController -Discover -Service GlobalCatalog -NextC
 #endregion
 
 #script Version 
-$ScriptVersion = "0.2.20261003.1"
+$ScriptVersion = "1.0.20261003.2"
 #Validate that the TierLevelIsolation event source is registered in the application log.
 #Disable Event Log output for this run if the source cannot be registered.
 try {   
