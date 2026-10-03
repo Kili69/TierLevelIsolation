@@ -226,7 +226,7 @@
       <Task version="1.2">
         <RegistrationInfo>
           <Author>Administrator</Author>
-          <Description>This script change theidentity of the usermanagement script into the GMSA</Description>
+          <Description>This script change the identity of the user management script into the GMSA</Description>
         </RegistrationInfo>
         <Principals>
           <Principal id="Author">

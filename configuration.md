@@ -1,88 +1,105 @@
 # TierLevelManagement configuration file
-The configuration ist sorted in JSON format. The JSON object has the following proterties
 
-## configuration objects
-The follwing configuration parameters are available: 
-### scope
-This paramter defines the scope of the Tier Level Isolation. Valid values are:
+The configuration is stored in JSON format. The JSON object has the following properties.
+
+## Configuration objects
+
+The following configuration parameters are available:
+
+### Scope
+
+This parameter defines the scope of Tier Level Isolation. Valid values are:
+
+#### Scope: Tier-0
+
+This value enables isolation for Tier 0 users only.
+
+#### Scope: Tier-1
+
+This value enables isolation for Tier 1 users only.
+
+#### Scope: All-Tiers
+
+This value enables isolation for both Tier 0 and Tier 1 users.
+
 ### Domains
-Is a array of Active Directory domains in the forest
+
+An array of Active Directory domains in the forest.
 
 ### PrivilegedGroupsCleanUp
-if this parameter is true Tier-0 users will be removed from privileged Active Directory groups 
 
-#### Tier-0
-This value is used for Tier-0 users isolation only
-#### Tier-1
-This value is used for Tier-1 users isolation only
-#### All-Tiers
-This vlaue is used if Tier-0 and Tier-1 will be protected by Tier Level Isolation
-### ProtectedUsers"
-if a array of Tier levels where the users will be added to the protected users group in their domain
-#### Tier-0
-Tier-0 users will be added to the protected users group
-#### Tier-1
-Tier-1 users will be added to the protected users group
+When this parameter is `true`, Tier 0 users outside the configured administrator and service-account OUs are removed from privileged Active Directory groups.
 
-### Tier0ComputerPath:
-Is a array of distinguished names where the Tier 0 computer objects are stored. If a relative distinguished name is used like "OU=Computers,OU=Tier 0,OU=Admin". The computer management script searches for all computer object in this path in every domain defined in the domain list.
-If the DN is full qualified (including domain DN) the script will only search in specified domain for Tiering computers
-#### Example:
-OU=Computers,OU=Tier 0,OU=Admin
-searches in every domain in this OU
-OU=Computers,OU=Tier 0,OU=Admin,DC=contoso,DC=com
-searches only in contoso.com for Tier 0 computers 
+### ProtectedUsers
 
-### Tier 0 Computers:
-is the SAMAccount name of the Tier 0 computers group. This group should be a universal group in the forest root domain. 
+An array of tier levels whose users are added to the Protected Users group in their domain.
+
+#### ProtectedUsers: Tier-0
+
+Tier 0 users are added to the Protected Users group.
+
+#### ProtectedUsers: Tier-1
+
+Tier 1 users are added to the Protected Users group.
+
+### Tier0ComputerPath
+
+An array of distinguished names where Tier 0 computer objects are stored. When a relative distinguished name such as `OU=Computers,OU=Tier 0,OU=Admin` is used, the computer management script searches this path in every domain in the domain list. When a fully qualified distinguished name includes the domain components, the script searches only the specified domain.
+
+#### Example
+
+- `OU=Computers,OU=Tier 0,OU=Admin` searches this OU in every configured domain.
+- `OU=Computers,OU=Tier 0,OU=Admin,DC=contoso,DC=com` searches only `contoso.com` for Tier 0 computers.
+
+### Tier0ComputerGroup
+
+The sAMAccountName of the Tier 0 computer group. This group should be a universal group in the forest root domain.
 
 ### Tier0ServiceAccountPath
-is the DN for service accounts. User objects in this ou, won't get a Kerberos Authentication Policy and will not be removed from privileged groups
 
-### Tier1ComputerPath" 
-Is a array of distinguished names where the Tier 1 computer objects are stored. If a relative distinguished name is used like "OU=Computers,OU=Tier 1,OU=Admin". The computer managemdn script searches for all computer objects in this path in every domain defined in the domain list
-if the DN is full qualified (including domain DN) the script will only search in specified domain for Tiering computers
+The distinguished name of the OU for Tier 0 service accounts. User objects in this OU do not receive a Kerberos Authentication Policy and are not removed from privileged groups.
+
+### Tier1ComputerPath
+
+An array of distinguished names where Tier 1 computer objects are stored. When a relative distinguished name such as `OU=Computers,OU=Tier 1,OU=Admin` is used, the computer management script searches this path in every configured domain. When a fully qualified distinguished name includes the domain components, the script searches only the specified domain.
 
 ### Tier1ComputerGroup
-is the SAMAccount name of the Tier 1 computers group. This group should be a universal group in the forest
 
-### Tier0UsersPath:
-Is a array of distinguished names where the Tier 0 user objects are stored. If a relative distinguished name is used like "OU=Users,OU=Tier 1,OU=Admin". The user management script searches for all users in this path in every domain defined in the domain list
+The sAMAccountName of the Tier 1 computer group. This group should be a universal group in the forest root domain.
 
-### Tier1UsersPath"
-Is a array of distinguished names where the Tier 1 user objects are stored. If a relative distinguished name is used like "OU=Users,OU=Tier 1,OU=Admin". The user management script searches for all users in this path in every domain defined in the domain list
+### Tier0UsersPath
+
+An array of distinguished names where Tier 0 user objects are stored. When a relative distinguished name such as `OU=Users,OU=Tier 0,OU=Admin` is used, the user management script searches this path in every configured domain.
+
+### Tier1UsersPath
+
+An array of distinguished names where Tier 1 user objects are stored. When a relative distinguished name such as `OU=Users,OU=Tier 1,OU=Admin` is used, the user management script searches this path in every configured domain.
 
 ### Tier0Groups
 
-An array of SIDs for additional Active Directory groups whose members are
-validated as Tier 0 identities. Group names are not stored in the
-configuration.
+An array of SIDs for additional Active Directory groups whose members are validated as Tier 0 identities. Group names are not stored in the configuration.
 
 ```json
 "Tier0Groups": [
-	"S-1-5-21-111111111-222222222-333333333-1100"
+    "S-1-5-21-111111111-222222222-333333333-1100"
 ]
 ```
 
 ### Tier1Groups
 
-An array of SIDs for additional Active Directory groups whose members are
-validated as Tier 1 identities. A group SID cannot be assigned to both tiers.
+An array of SIDs for additional Active Directory groups whose members are validated as Tier 1 identities. A group SID cannot be assigned to both tiers.
 
 ```json
 "Tier1Groups": [
-	"S-1-5-21-111111111-222222222-333333333-1200"
+    "S-1-5-21-111111111-222222222-333333333-1200"
 ]
 ```
 
-Additional groups are processed only when `PrivilegedGroupsCleanUp` is enabled.
-The group SID must resolve in one of the domains listed in `Domains`.
+Additional groups are processed only when `PrivilegedGroupsCleanUp` is enabled. The group SID must resolve in one of the domains listed in `Domains`.
 
 ## Managing additional groups
 
-`Add-TierLevelIsolationGroup` accepts a SID or an Active Directory group
-identity. Names are resolved when the command runs; only the resulting SID is
-stored.
+`Add-TierLevelIsolationGroup` accepts a SID or an Active Directory group identity. Names are resolved when the command runs; only the resulting SID is stored.
 
 ```powershell
 Add-TierLevelIsolationGroup -TierLevel Tier0 -GroupName 'CONTOSO\Tier 0 Operators'
@@ -96,10 +113,8 @@ Get-TierLevelIsolationGroup
 Get-TierLevelIsolationGroup -TierLevel Tier0
 ```
 
-The output includes the stored SID, resolved group name, domain, and resolution
-state. Remove a group by its stored SID or by an identity that can be resolved:
+The output includes the stored SID, resolved group name, domain, and resolution state. Remove a group by its stored SID or by an identity that can be resolved:
 
 ```powershell
 Remove-TierLevelIsolationGroup -TierLevel Tier0 -GroupSID 'S-1-5-21-111111111-222222222-333333333-1100'
 ```
-
