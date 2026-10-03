@@ -6,7 +6,7 @@ on:
       - Dev
 
 permissions:
-  contents: read
+  contents: write
   pull-requests: write
 
 jobs:
@@ -29,12 +29,17 @@ jobs:
           existing_pr="$(gh pr list --repo "${GITHUB_REPOSITORY}" --base main --head Dev --state open --json number --jq '.[0].number')"
           if [ -n "${existing_pr}" ]; then
             echo "Sync pull request #${existing_pr} is already open."
-            exit 0
+            pull_request="${existing_pr}"
+          else
+            pull_request_url="$(
+              gh pr create \
+                --repo "${GITHUB_REPOSITORY}" \
+                --base main \
+                --head Dev \
+                --title "Sync Dev to main" \
+                --body "Automated synchronization pull request from \`Dev\` to \`main\`. A successful Dev status check merges this pull request and creates a release."
+            )"
+            pull_request="${pull_request_url##*/}"
           fi
 
-          gh pr create \
-            --repo "${GITHUB_REPOSITORY}" \
-            --base main \
-            --head Dev \
-            --title "Sync Dev to main" \
-            --body "Automated synchronization pull request from \`Dev\` to \`main\`. Merge this pull request to create a release."
+          gh pr merge "${pull_request}" --repo "${GITHUB_REPOSITORY}" --auto --merge
