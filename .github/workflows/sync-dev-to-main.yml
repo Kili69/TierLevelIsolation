@@ -4,8 +4,10 @@ on:
   push:
     branches:
       - Dev
+  workflow_dispatch:
 
 permissions:
+  actions: write
   contents: write
   pull-requests: write
 
@@ -42,4 +44,24 @@ jobs:
             pull_request="${pull_request_url##*/}"
           fi
 
-          gh pr merge "${pull_request}" --repo "${GITHUB_REPOSITORY}" --auto --merge
+          comparison="$(gh api "repos/${GITHUB_REPOSITORY}/compare/main...Dev" --jq '.status')"
+          if [ "${comparison}" != "ahead" ] && [ "${comparison}" != "identical" ]; then
+            echo "Dev is not based on the current main commit. Updating the pull request branch."
+            gh pr update-branch "${pull_request}" --repo "${GITHUB_REPOSITORY}"
+            gh workflow run sync-dev-to-main.yml --repo "${GITHUB_REPOSITORY}" --ref Dev
+            exit 0
+          fi
+
+          gh pr merge "${pull_request}" --repo "${GITHUB_REPOSITORY}" --merge
+
+          for attempt in $(seq 1 30); do
+            state="$(gh pr view "${pull_request}" --repo "${GITHUB_REPOSITORY}" --json state --jq '.state')"
+            if [ "${state}" = "MERGED" ]; then
+              gh workflow run release.yml --repo "${GITHUB_REPOSITORY}" --ref main
+              exit 0
+            fi
+            sleep 5
+          done
+
+          echo "The sync pull request did not reach the merged state within the expected time." >&2
+          exit 1

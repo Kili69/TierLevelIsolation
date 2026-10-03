@@ -4,29 +4,46 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-main
+  group: release-main-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
   release:
     name: Create GitHub release
     runs-on: ubuntu-latest
+    outputs:
+      created: ${{ steps.release_state.outputs.created }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Determine release version
-        id: version
+      - name: Check for an existing release tag
+        id: release_state
         shell: pwsh
         run: |
           git fetch --tags --force
+          $existingTag = git tag --points-at '${{ github.sha }}' --list 'v0.1.*' | Select-Object -First 1
+          if ($existingTag) {
+              Write-Host "Commit ${{ github.sha }} already has release tag $existingTag."
+              'created=false' >> $env:GITHUB_OUTPUT
+          }
+          else {
+              'created=true' >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Determine release version
+        if: steps.release_state.outputs.created == 'true'
+        id: version
+        shell: pwsh
+        run: |
           $date = (Get-Date).ToUniversalTime().ToString('yyyyMMdd')
           $prefix = "v0.1.$date."
           $counters = @(
@@ -48,12 +65,14 @@ jobs:
           "tag=v$version" >> $env:GITHUB_OUTPUT
 
       - name: Create release archive
+        if: steps.release_state.outputs.created == 'true'
         shell: pwsh
         run: |
           $archive = "TierLevelIsolation-${{ steps.version.outputs.version }}.zip"
           git archive --format=zip --output=$archive HEAD
 
       - name: Create GitHub release
+        if: steps.release_state.outputs.created == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -66,6 +85,8 @@ jobs:
 
   publish-module:
     name: Publish changed PowerShell module
+    needs: release
+    if: needs.release.outputs.created == 'true'
     runs-on: windows-latest
     steps:
       - name: Check out repository
@@ -79,11 +100,17 @@ jobs:
         run: |
           $before = '${{ github.event.before }}'
           $zeroCommit = '0000000000000000000000000000000000000000'
+          if ([string]::IsNullOrWhiteSpace($before)) {
+              $before = git rev-parse '${{ github.sha }}^1'
+          }
           if ($before -eq $zeroCommit) {
               $changed = $true
           }
           else {
               git diff --quiet $before '${{ github.sha }}' -- module
+              if ($LASTEXITCODE -gt 1) {
+                  throw "git diff failed with exit code $LASTEXITCODE."
+              }
               $changed = $LASTEXITCODE -eq 1
           }
           "changed=$($changed.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
