@@ -6,6 +6,7 @@ on:
       - Dev
 
 permissions:
+  actions: write
   contents: write
   pull-requests: write
 
@@ -43,3 +44,15 @@ jobs:
           fi
 
           gh pr merge "${pull_request}" --repo "${GITHUB_REPOSITORY}" --auto --merge
+
+          for attempt in $(seq 1 30); do
+            state="$(gh pr view "${pull_request}" --repo "${GITHUB_REPOSITORY}" --json state --jq '.state')"
+            if [ "${state}" = "MERGED" ]; then
+              gh workflow run release.yml --repo "${GITHUB_REPOSITORY}" --ref main
+              exit 0
+            fi
+            sleep 5
+          done
+
+          echo "The sync pull request did not reach the merged state within the expected time." >&2
+          exit 1
