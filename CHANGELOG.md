@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file. Historical entr
 
 ## [Unreleased]
 
+### Changed
+
+- Fix unpublished release tag detection (6dcdfeb)
+
 ## [1.0.20261003.2] - 2026-10-03
 
 ### Added
