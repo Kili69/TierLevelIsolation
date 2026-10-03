@@ -1,7 +1,4 @@
-<#
-Disclaimer:
-This sample script is not supported under any Microsoft standard support program or service. The sample script is provided AS IS without warranty of any kind. Microsoft further disclaims all implied warranties including, without limitation, any implied warranties of merchantability or of fitness for a particular purpose. The entire risk arising out of the use or performance of the sample scripts and documentation remains with you. In no event shall Microsoft, its authors, or anyone else involved in the creation, production, or delivery of the scripts be liable for any damages whatsoever (including, without limitation, damages for loss of business profits, business interruption, loss of business information, or other pecuniary loss) arising out of the use of or inability to use the sample scripts or documentation, even if Microsoft has been advised of the possibility of such damages
-#>
+# SPDX-License-Identifier: Apache-2.0
 
 <#
 .SYNOPSIS
@@ -17,7 +14,7 @@ This sample script is not supported under any Microsoft standard support program
      Processing details:
 
      1. Prerequisite and target discovery
-         The ActiveDirectory module supplies forest, domain, and domain-controller information. The local operating system, optional elevation state, klist.exe path, and required klist commands are validated before any ticket test starts. The target set contains every forest domain unless TargetDomain limits it to the local computer domain and one additional forest domain. Read-only controllers are excluded unless IncludeReadOnlyDomainControllers is specified.
+         The ActiveDirectory module supplies forest, domain, and domain-controller information. The local operating system, optional elevation state, klist.exe path, and required klist commands are validated before any ticket test starts. The target set contains every forest domain unless TargetDomain limits it to the local computer domain and one additional forest domain. Read-only controllers are excluded unless IncludeReadOnlyDomainControllers is specified. A domain whose controllers cannot be discovered is reported as an Error without preventing tests of the remaining domains.
 
      2. Optional configuration inspection
          CheckDomainControllerConfiguration reads the effective EnableCbacAndArmor value from the KDC and Kerberos client policy registry paths on each selected controller through the remote registry API. Missing values are treated as disabled. Registry access failures are captured per controller and do not prevent the ticket test from running.
@@ -31,7 +28,7 @@ This sample script is not supported under any Microsoft standard support program
      5. Result and cleanup
          A result is OK only when the ticket exists, FAST bit 0x40 is set, and the issuing KDC matches. A ticket from the expected KDC without FAST is False, while a ticket from another KDC is Warning. Parser, command, or ticket acquisition failures are Error. Bindings and temporary isolated-session files are removed, and current-user mode obtains a fresh home-domain TGT after its destructive cache tests. The script writes a color-coded summary, emits complete result objects with Verbose, and exits 0 only when every requested check succeeds; otherwise it exits 1.
 
-    Version 0.1.20261002.1
+    Version 0.1.20261003.1
 
 .NOTES
     See CHANGELOG.md for the complete version history.
@@ -130,7 +127,7 @@ param(
 )
 
 # Current script release shown at startup and maintained in the comment-based help history.
-$ScriptVersion = '0.1.20261002.1'
+$ScriptVersion = '0.1.20261003.1'
 # Convert non-terminating PowerShell errors into terminating errors handled by the surrounding code.
 $ErrorActionPreference = 'Stop'
 # Use the operating system's Kerberos command-line utility instead of relying on PATH resolution.
@@ -1392,9 +1389,52 @@ if (-not $UseCurrentUser -and $localFastSupport.Supported -and $null -eq $Creden
 $parallelTests = [System.Collections.Generic.List[object]]::new()
 $results = foreach ($domainName in $domainsToTest) {
     # domainControllers is sorted for deterministic default selection and output ordering.
-    $domainControllers = @(Get-ADDomainController -Filter * -Server $domainName |
-            Where-Object { $IncludeReadOnlyDomainControllers -or -not $_.IsReadOnly } |
-            Sort-Object HostName)
+    $domainControllerDiscoveryError = $null
+    try {
+        $domainControllers = @(Get-ADDomainController -Filter * -Server $domainName |
+                Where-Object { $IncludeReadOnlyDomainControllers -or -not $_.IsReadOnly } |
+                Sort-Object HostName)
+    }
+    catch {
+        $domainControllers = @()
+        $domainControllerDiscoveryError = $_.Exception.Message
+    }
+
+    if ($domainControllers.Count -eq 0) {
+        if (-not $domainControllerDiscoveryError) {
+            $domainControllerDiscoveryError = if ($IncludeReadOnlyDomainControllers) {
+                'No domain controllers were discovered.'
+            }
+            else {
+                'No writable domain controllers were discovered.'
+            }
+        }
+
+        $discoveryError = "Domain controller discovery failed for '$domainName': $domainControllerDiscoveryError"
+        [pscustomobject][ordered]@{
+            Domain                  = $domainName
+            DomainController        = '(not discovered)'
+            ServicePrincipal        = $null
+            IsReadOnly              = $null
+            LocalClientFastSupported = $localFastSupport.Supported
+            LocalClientSupportError = $localFastSupport.Error
+            ConfigurationCheckRequested = [bool]$CheckDomainControllerConfiguration
+            KdcArmorConfigured      = $null
+            ClientArmorConfigured   = $null
+            DCConfigurationStatus   = if ($CheckDomainControllerConfiguration) { 'Error' } else { 'NotRequested' }
+            ConfigurationError      = if ($CheckDomainControllerConfiguration) { $discoveryError } else { $null }
+            TicketReceived          = $false
+            FastEnabled             = $false
+            KerberosArmoringStatus  = 'Error'
+            KerberosArmoringReason  = $discoveryError
+            FastCacheFlags          = $null
+            IssuingKdc              = $null
+            IssuingKdcConfirmed     = $false
+            IssuingKdcConfirmationRequired = -not [bool]$Unprivileged
+            TicketTestError         = $discoveryError
+        }
+        continue
+    }
 
     # The default and unprivileged modes keep one service target per domain. TestAllDC retains the full list only for controller-specific privileged tests.
     if ($Unprivileged -or -not $TestAllDC) {

@@ -10,6 +10,7 @@ permissions:
   actions: write
   contents: write
   pull-requests: write
+  statuses: write
 
 jobs:
   dev-source:
@@ -47,9 +48,27 @@ jobs:
           comparison="$(gh api "repos/${GITHUB_REPOSITORY}/compare/main...Dev" --jq '.status')"
           if [ "${comparison}" != "ahead" ] && [ "${comparison}" != "identical" ]; then
             echo "Dev is not based on the current main commit. Updating the pull request branch."
+            previous_head="$(gh pr view "${pull_request}" --repo "${GITHUB_REPOSITORY}" --json headRefOid --jq '.headRefOid')"
             gh pr update-branch "${pull_request}" --repo "${GITHUB_REPOSITORY}"
-            gh workflow run sync-dev-to-main.yml --repo "${GITHUB_REPOSITORY}" --ref Dev
-            exit 0
+
+            updated_head=""
+            for attempt in $(seq 1 30); do
+              updated_head="$(gh pr view "${pull_request}" --repo "${GITHUB_REPOSITORY}" --json headRefOid --jq '.headRefOid')"
+              if [ "${updated_head}" != "${previous_head}" ]; then
+                break
+              fi
+              sleep 2
+            done
+
+            if [ -z "${updated_head}" ] || [ "${updated_head}" = "${previous_head}" ]; then
+              echo "The pull request head did not change after the branch update." >&2
+              exit 1
+            fi
+
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${updated_head}" \
+              -f state=success \
+              -f context="Dev source branch" \
+              -f description="Dev was updated from protected main by the sync workflow." >/dev/null
           fi
 
           gh pr merge "${pull_request}" --repo "${GITHUB_REPOSITORY}" --merge

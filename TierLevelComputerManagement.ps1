@@ -1,20 +1,11 @@
+# SPDX-License-Identifier: Apache-2.0
+
 <#
 Script Info
 
 Author: Andreas Lucas [MSFT]
 Download: https://github.com/Kili69/TierLevelIsolation  
 
-Disclaimer:
-This sample script is not supported under any Microsoft standard support program or service. 
-The sample script is provided AS IS without warranty of any kind. Microsoft further disclaims 
-all implied warranties including, without limitation, any implied warranties of merchantability 
-or of fitness for a particular purpose. The entire risk arising out of the use or performance of 
-the sample scripts and documentation remains with you. In no event shall Microsoft, its authors, 
-or anyone else involved in the creation, production, or delivery of the scripts be liable for any 
-damages whatsoever (including, without limitation, damages for loss of business profits, business 
-interruption, loss of business information, or other pecuniary loss) arising out of the use of or 
-inability to use the sample scripts or documentation, even if Microsoft has been advised of the 
-possibility of such damages
 .Synopsis
     Managing of Tier 0 and Tier 1 computer groups
 
@@ -25,7 +16,7 @@ possibility of such damages
 .OUTPUTS 
     None
 .PARAMETER ConfigFile
-    This is the full quaified path to the configuration file. If this parameter is empty, the script will
+    This is the full qualified path to the configuration file. If this parameter is empty, the script will
     search for the configuration in Active Directory or on the SYSVOL path
 .PARAMETER scope
     defines which scope will be used. Possible scopes are:
@@ -37,8 +28,8 @@ possibility of such damages
         Initial Version
     Version[AL] 20241223
         Documentation update
-                The script creates a debug log in the user data app folder. This log file contains additional debug informations
-        Important events are writte to the application log
+                The script creates a debug log in the user data app folder. This log file contains additional debug information
+        Important events are written to the application log
     Version 0.2.20250304
         Provide logfile in the start message
     Version 0.2.20250314
@@ -48,7 +39,7 @@ possibility of such damages
     Version 0.2.20250329
         The script consumes the log path parameter from the configfile
     Version 0.2.20250623
-        A errory fixed is the config file is not available or incorrect format
+        A error fixed is the config file is not available or incorrect format
         New exit code added
     Version 0.2.20250625
         Removed inconsistency between this script and the TierLevelUserManagement.ps1 script reading the config file
@@ -63,9 +54,11 @@ possibility of such damages
         restructuring of the code to improve readability and maintainability
     Version 0.2.20260825.1
         Aligned event IDs and event source handling with Windows Event Log guidance
+    Version 0.2.20261003.1
+        Relicensed the project under Apache License 2.0 and moved the disclaimer to README.md
 
     Exit codes:
-        0x3E8 - a general error occured while readinb the configuration file
+        0x3E8 - a general error occurred while reading the configuration file
         0x3E9 - the configuration file is not available or has an incorrect format
         0x3EA - format error in the configuration file
         0x3EB - the configuration file is not available 
@@ -85,7 +78,7 @@ param(
 .SYNOPSIS
     Write event to the event log and the debug log file
 .DESCRIPTION
-    This funtion will write all events to the log file. If the severity is debug the message will only be written to the debuig log file
+    This function will write all events to the log file. If the severity is debug the message will only be written to the debug log file
     This function replaced the write-eventlog and write-host cmdlets in this script
 .OUTPUTS
     None
@@ -152,7 +145,7 @@ function Write-Log {
 .OUTPUTS
     A array of unexpected computers
 .PARAMETER OUList
-    A array of distunguished OU names
+    A array of distinguished OU names
 .PARAMETER MemberDNList
     A array Distinguished computer objects
 .PARAMETER DomainDnsList
@@ -209,7 +202,7 @@ function Get-UnexpectedComputerObjects{
 # Main program starts here
 ##############################################################################################################################
 
-#region constantes
+#region constant
 
 $CurrentDomainDNS = (Get-ADDomain).DNSRoot  #Is the current domain DNS name.
 $DefaultConfigFile = "\\$CurrentDomainDNS\SYSVOL\$CurrentDomainDNS\scripts\TierLevelIsolation.config"       #The default configuration file is located in the SYSVOL path of the current domain
@@ -221,7 +214,7 @@ $GlobalCatalog = (Get-ADDomainController -Discover -Service GlobalCatalog -NextC
 #endregion
 
 #script Version 
-$ScriptVersion = "0.2.20260825.1"
+$ScriptVersion = "0.2.20261003.1"
 #Validate that the TierLevelIsolation event source is registered in the application log.
 #Disable Event Log output for this run if the source cannot be registered.
 try {   
@@ -239,7 +232,7 @@ catch {
 #region read configuration
 try{
     #if the configuration file is not set, the script will search for the configuration in the Active Directory configuration partition or on the default path
-    #if the configuration is avaiable in the Active Directory configuration partition, the script will read the configuration from the AD
+    #if the configuration is available in the Active Directory configuration partition, the script will read the configuration from the AD
     #otherwise try to use the default configuration file
     if ($ConfigFile -eq '') {
         if ((Test-Path -Path $DefaultConfigFile)){
@@ -257,14 +250,14 @@ try{
                 if ($EventLogAvailable) {
                     Write-EventLog -LogName $eventLog -source $source -Message "TierLevel Isolation can't read the configuration file $ConfigFile" -EntryType Error -EventID 1102
                 }
-                Write-Output "An error occured while reading the configuration file $ConfigFile. The script will exit with code 0x3EB"
+                Write-Output "An error occurred while reading the configuration file $ConfigFile. The script will exit with code 0x3EB"
                 return 0x3EB
             }
         } else {
             if ($EventLogAvailable) {
                 Write-EventLog -LogName $eventLog -source $source -Message "TierLevel Isolation can't find the configuration file $ConfigFile" -EntryType Error -EventID 1103
             }
-            write-output "An error occured while reading the configuration file $ConfigFile. The script will exit with code 0x3EA"
+            write-output "An error occurred while reading the configuration file $ConfigFile. The script will exit with code 0x3EA"
             return 0x3EA
         }
     }
@@ -273,10 +266,10 @@ catch {
     if ($EventLogAvailable) {
         Write-EventLog -LogName $eventLog -Source $source -Message "An unexpected error occurred while reading the configuration" -EntryType Error -EventID 1104
     }
-    Write-Output " An error occured while reading the configuration file $ConfigFile. The script will exit with code 0x3E8"
+    Write-Output " An error occurred while reading the configuration file $ConfigFile. The script will exit with code 0x3E8"
     return 0x3E8
 }
-#if the paramter $scope is set, it will overwrite the saved configuration
+#if the parameter $scope is set, it will overwrite the saved configuration
 if ($null -eq $scope ){
     $scope = $config.scope
 }
@@ -286,7 +279,7 @@ $logPath = if ([string]::IsNullOrWhiteSpace($config.LogPath)) { $env:LOCALAPPDAT
 $logFileName = "TierLevelIsolationComputerManagement-$scope-${env:COMPUTERNAME}.log"
 $LogFile = Join-Path $logPath $logFileName 
 
-#rename existing log files to *.sav if the currentlog file exceed the size of $MaxLogFileSize
+#rename existing log files to *.sav if the current log file exceed the size of $MaxLogFileSize
 if (Test-Path $LogFile) {
     if ((Get-Item $LogFile ).Length -gt $MaxLogFileSize) {
         if (Test-Path "$LogFile.sav") {
@@ -297,7 +290,7 @@ if (Test-Path $LogFile) {
 }
 #endregion
 Write-Log -Message "Tier Isolation computer management $Scope version $ScriptVersion started. $($MyInvocation.Line) see $logFile " -Severity Information -EventID 1000
-#region validate the Tier computer groups exist. If not terminal the scirpt
+#region validate the Tier computer groups exist. If not terminal the script
 try {
     $Tier0ComputerGroup = Get-ADGroup -Filter "SamAccountName -eq '$($config.Tier0ComputerGroup)'" -Properties member
     if ($null -eq $Tier0ComputerGroup) {
@@ -364,7 +357,7 @@ foreach ($Domain  in $config.Domains) {
                 Write-Log "Global catalog not updated. Wait for GP update $($Error[0].InvocationInfo.ScriptLineNumber)" -Severity Warning -EventID 1204
             }
             catch{
-                Write-Log "A unexpected error has occured $($Error[0].InvocationInfo.ScriptLineNumber) while updating $Tier0ComputerGroup" -Severity Error -EventID 1003
+                Write-Log "A unexpected error has occurred $($Error[0].InvocationInfo.ScriptLineNumber) while updating $Tier0ComputerGroup" -Severity Error -EventID 1003
             }
         }
         #endregion
@@ -398,7 +391,7 @@ foreach ($Domain  in $config.Domains) {
                 Write-Log "Global catalog not updated. Wait for GP update $($Error[0].InvocationInfo.ScriptLineNumber)" -Severity Warning -EventID 1404
             }
             catch{
-                Write-Log "A unexpected error has occured while managing Tier 1 computersgroups $error" -Severity Error -EventID 1402
+                Write-Log "A unexpected error has occurred while managing Tier 1 computer groups $error" -Severity Error -EventID 1402
             }
         }
     }

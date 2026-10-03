@@ -1,20 +1,11 @@
+# SPDX-License-Identifier: Apache-2.0
+
 <#
 Script Info
 
 Author: Andreas Lucas [MSFT]
 Download: https://github.com/Kili69/TierLevelIsolation
 
-Disclaimer:
-This sample script is not supported under any Microsoft standard support program or service. 
-The sample script is provided AS IS without warranty of any kind. Microsoft further disclaims 
-all implied warranties including, without limitation, any implied warranties of merchantability 
-or of fitness for a particular purpose. The entire risk arising out of the use or performance of 
-the sample scripts and documentation remains with you. In no event shall Microsoft, its authors, 
-or anyone else involved in the creation, production, or delivery of the scripts be liable for any 
-damages whatsoever (including, without limitation, damages for loss of business profits, business 
-interruption, loss of business information, or other pecuniary loss) arising out of the use of or 
-inability to use the sample scripts or documentation, even if Microsoft has been advised of the 
-possibility of such damages
 .Synopsis
     Installs and configures Active Directory Tier Level isolation.
 
@@ -132,19 +123,19 @@ possibility of such damages
     Version 0.2.20250218
         Update text messages
     Version 0.2.20250228
-        fixed a bug whil creating the OUs. 
+        fixed a bug while creating the OUs.
         Type error removed
     Version 0.2.20250303
-        Fixed a bug while updating the Schedulted task XML file
+        Fixed a bug while updating the Scheduled task XML file
     Version 0.2.20250306
         new created Tier 0 / Tier 1 server group will be set to adminCount = 1
     Version 0.2.20250313
-        Fixed an bug in the tier 0 Kerberos Authenticaiton policy claim.
+        Fixed a bug in the tier 0 Kerberos Authentication policy claim.
         Added the description to the Tier 0 / Tier 1 Kerberos Authentication policy
     Version 0.2.20250314
         The GMSA will be added to the enterprise admins group if the gmsa is not a member of the enterprise admins group
     Version 0.2.20250320
-        Default name of the configurationfile changed from Tiering.config to TierLevelIsolation.config
+        Default name of the configuration file changed from Tiering.config to TierLevelIsolation.config
     Version 0.2.20250327
         The script will now use the powershell module to create the configuration file
         Bug if in the new-TierLevelOU function
@@ -195,6 +186,10 @@ possibility of such damages
         Corrected scope-aware OU processing for all computer, user, and service-account paths
     Version 0.2.20260828.5
         Standardized Tier 0 terminology as Tier 0 computer
+    Version 0.2.20261003.1
+        Relicensed the project under Apache License 2.0 and moved the disclaimer to README.md
+    Version 0.2.20261003.2
+        Corrected spelling and grammar in Write-Host messages
 
 #>
 param(
@@ -275,7 +270,7 @@ function New-TierLevelOU {
         Return $false
     } 
     catch {
-        Write-Host "A error occured while create OU Structure $OUPath" -ForegroundColor Red
+        Write-Host "An error occurred while creating the OU structure '$OUPath'." -ForegroundColor Red
         Write-Host $Error[0].Exception.Message -ForegroundColor Red
         Return $false
     }
@@ -317,8 +312,8 @@ function New-GMSA {
     try {
         # A KDS root key is mandatory for generating gMSA passwords.
         if (![bool](Get-KdsRootKey)) {
-            Write-Host "KDS Rootkey is missing." -ForegroundColor Red
-            Write-Host "Creating KDS-Rootkey" -ForegroundColor Yellow
+            Write-Host "The KDS root key is missing." -ForegroundColor Red
+            Write-Host "Creating the KDS root key." -ForegroundColor Yellow
             Add-KdsRootKey -EffectiveTime ((Get-Date).AddHours(-10))
         }
         # Keep existing service accounts unchanged so reruns remain idempotent.
@@ -344,7 +339,7 @@ function New-GMSA {
         $retval = $true
     }
     catch {
-        Write-Host "A unexpected error has occured while creating the GMSA. $($error[0])"
+        Write-Host "An unexpected error occurred while creating the GMSA. $($error[0])"
         $retval = $false
     }
     Return $retval
@@ -480,7 +475,7 @@ function Get-InstallationParameterValue {
 #####################################################################################################################################################################################
 #region Installation logging, constants, and default values
 #####################################################################################################################################################################################
-$ScriptVersion = "0.2.20260828.5"
+$ScriptVersion = "0.2.20261003.2"
 $ObjectParameterMode = $PSBoundParameters.ContainsKey("InstallationParameters")
 if ($ObjectParameterMode) {
     $InstallPSModuleOnly = [bool](Get-InstallationParameterValue -InputObject $InstallationParameters -Name "InstallPSModuleOnly" -DefaultValue ([bool]$InstallPSModuleOnly))
@@ -532,8 +527,8 @@ try{
     Import-Module GroupPolicy  -ErrorAction Stop
 } 
 catch {
-    Write-Host "Failed to load the required Powerhsell module" -ForegroundColor Red
-    Write-Host "validate the Active Directory and Group Policy Powershell modules are installed" -ForegroundColor Red
+    Write-Host "Failed to load the required PowerShell modules." -ForegroundColor Red
+    Write-Host "Verify that the Active Directory and Group Policy PowerShell modules are installed." -ForegroundColor Red
     exit
 }
 # The current domain hosts the tier server groups. Changes are sent to the nearest domain
@@ -1072,7 +1067,7 @@ catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException]{
     return
 }
 catch {
-    Write-Host "An unexpected error has occured. Script aborted" -ForegroundColor Red
+    Write-Host "An unexpected error occurred. The script was aborted." -ForegroundColor Red
     Write-Host $($Error[0].Exception.Message) -ForegroundColor Red
     Write-Host "script aborted" -ForegroundColor Red
     return
@@ -1086,7 +1081,7 @@ catch {
 if (($scope -eq "Tier0") -or ($scope -eq "All-Tiers")){
     try {
         if ([bool](Get-ADAuthenticationPolicy -Filter "Name -eq '$($config.T0KerbAuthPolName)'")){
-            Write-Host "Kerberos Authentication Policy $($config.T0KerbAuthPolName) already exists. Please validate the policy manual" -ForegroundColor Yellow
+            Write-Host "Kerberos Authentication Policy $($config.T0KerbAuthPolName) already exists. Please validate the policy manually." -ForegroundColor Yellow
         } else {
             # Conditional access expression for Enterprise DCs and Tier 0 computer-group members.
             $AllowToAutenticateFromSDDL = "O:SYG:SYD:(XA;OICI;CR;;;WD;((Member_of {SID(ED)}) || (Member_of_any {SID($($Tier0ComputerGroup.SID))})))"
@@ -1096,7 +1091,7 @@ if (($scope -eq "Tier0") -or ($scope -eq "All-Tiers")){
                                        -UserAllowedToAuthenticateFrom $AllowToAutenticateFromSDDL `
                                        -ProtectedFromAccidentalDeletion $true `
                                        -Description $DescriptionTier0CKerberosAuthenticationPolicy
-            Write-Host "Tier 0 Kerberos Authentication Policy sucessfully created"                             
+            Write-Host "Tier 0 Kerberos Authentication Policy successfully created."
         }
     }
     catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException]{
@@ -1162,10 +1157,10 @@ if ($ObjectParameterMode) {
 }
 if ($null -eq (Get-ADServiceAccount -Filter "name -eq '$GMSAName'")){
     if (![bool](Get-KdsRootKey)){
-        Write-Host "KDS Rootkey is missing." -ForegroundColor Red
-        Write-Host "Creating KDS-Rootkey" -ForegroundColor Yellow
+        Write-Host "The KDS root key is missing." -ForegroundColor Red
+        Write-Host "Creating the KDS root key." -ForegroundColor Yellow
         Add-KdsRootKey -EffectiveTime ((Get-Date).AddHours(-10)) | Out-Null
-        Write-Host "KDS Rootkey created" -ForegroundColor Green
+        Write-Host "KDS root key created." -ForegroundColor Green
     }
     New-GMSA -GMSAName $GMSAName -AllowTOLogon (Get-ADGroup -Identity "$((Get-ADDomain).DomainSID)-516") -Description $DescriptionGMSA
 }
@@ -1242,7 +1237,7 @@ try {
         $oGPO | New-GPLink -Target (Get-ADDomain).DomainControllersContainer -LinkEnabled Yes
         Write-Host "$GPOName Group Policy is linked to Domain Controllers OU" -ForegroundColor Yellow -BackgroundColor Blue
         Write-Host "Do not forget to enable user management tasks" -ForegroundColor Yellow
-        Write-Host "ONCE all Tier 0 computers are members of the $($config.Tier0ComputerGroup) group AND have been rebooted you are ready to enable the 'Tier 0 User Management' Scheduled Task. Also, be sure to have a proper Breakglass account and process in place."
+        Write-Host "Once all Tier 0 computers are members of the $($config.Tier0ComputerGroup) group and have been rebooted, you are ready to enable the 'Tier 0 User Management' scheduled task. Ensure that a proper break-glass account and process are in place."
     } else {
         if (!$LinkedTieringGP.Enabled){
             Write-Host "$GPOName group policy is linked to $((Get-ADDomain).DomainControllersContainer)" -ForegroundColor Yellow
