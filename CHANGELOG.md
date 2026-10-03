@@ -6,10 +6,6 @@ All notable changes to this project are documented in this file. Historical entr
 
 ## [Unreleased]
 
-### Changed
-
-- Fix unpublished release tag detection (6dcdfeb)
-
 ## [1.0.20261003.2] - 2026-10-03
 
 ### Added
@@ -18,6 +14,7 @@ All notable changes to this project are documented in this file. Historical entr
 
 ### Changed
 
+- Fix unpublished release tag detection (6dcdfeb)
 - Added the current major and minor project version to the README heading.
 - Automated the addition of undocumented Dev commit titles to the Unreleased changelog section.
 - Changed the manual Dev-to-main synchronization to consolidate all changelog entries since the latest main release into one new release version.
