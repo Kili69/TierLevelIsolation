@@ -9,7 +9,7 @@ All notable changes to this project are documented in this file. Historical entr
 ### Added
 
 - Added this GitHub-compatible project changelog and linked it from the README.
-- Added automated Dev-to-main synchronization, GitHub release creation, and conditional PowerShell Gallery publication workflows.
+- Added manually initiated Dev-to-main synchronization, automatic GitHub release creation for main commits, and conditional PowerShell Gallery publication workflows.
 
 ## [0.1.20261002.2] - 2026-10-02
 
