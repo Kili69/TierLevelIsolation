@@ -7,7 +7,7 @@ Author: Andreas Lucas [MSFT]
 
 
 Module Name: TierLevelIsolation
-Module Version: 0.1.20261003.1
+Module Version: 1.0.20261003.2
 Module GUID: 32c51271-3735-4b61-b80f-7284dafe6c77
 Module Description: Manages the shared configuration for Kerberos Authentication Policy based
 Tier Level isolation in an Active Directory forest.
@@ -76,6 +76,8 @@ Version History:
                 - Added maintainer-focused inline documentation for implementation logic.
     Version 0.1.20261003.1
                 - Relicensed the project under Apache License 2.0 and moved the disclaimer to README.md.
+    Version 1.0.20261003.2
+                - Promoted the project to version 1.0.
 
 #>
 

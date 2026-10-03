@@ -459,8 +459,8 @@ Increment `ModuleVersion` in `module\TierLevelIsolation.psd1` before every subse
 
 ## Automated release workflow
 
-All code changes are made on the `Dev` branch. A push to `Dev` runs the **Sync Dev to main** workflow, which opens a synchronization pull request when one is not already open and merges it automatically after the required Dev status check succeeds. The protected `main` branch accepts changes only through this Dev-to-main pull request.
+All code changes are made and tested on the `Dev` branch. A push to `Dev` does not synchronize or release anything. When the tested changes are ready, start the **Sync Dev to main** workflow manually from the GitHub Actions page. The workflow opens or updates a Dev-to-main pull request and marks the selected Dev revision as ready for synchronization.
 
-Merging the synchronization pull request triggers the **Release** workflow. Every commit on `main` creates a GitHub release and a ZIP archive with a version in the `0.1.YYYYMMDD.counter` format.
+Review and merge the synchronization pull request manually. The protected `main` branch accepts changes only through this Dev-to-main pull request. Its merge commit triggers the **Release** workflow, which creates a GitHub release and a ZIP archive with a version in the `1.0.YYYYMMDD.counter` format.
 
-When the main commit changes files under `module`, the workflow also publishes the module version declared in `module\TierLevelIsolation.psd1` to PowerShell Gallery. Configure a GitHub Actions repository secret named `PSGALLERY_API_KEY` before merging module changes. The workflow fails the module-publication job if the secret is missing or that module version already exists in PowerShell Gallery; GitHub release creation remains independent.
+Only a push to `main` can publish to PowerShell Gallery. When that main commit changes files under `module`, the workflow publishes the module version declared in `module\TierLevelIsolation.psd1`. Pushes and commits on `Dev` or any other branch never publish packages. Configure a GitHub Actions repository secret named `PSGALLERY_API_KEY` before merging module changes. The workflow fails the module-publication job if the secret is missing or that module version already exists in PowerShell Gallery; GitHub release creation remains independent.

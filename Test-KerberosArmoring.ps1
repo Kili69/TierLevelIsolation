@@ -28,7 +28,7 @@
      5. Result and cleanup
          A result is OK only when the ticket exists, FAST bit 0x40 is set, and the issuing KDC matches. A ticket from the expected KDC without FAST is False, while a ticket from another KDC is Warning. Parser, command, or ticket acquisition failures are Error. Bindings and temporary isolated-session files are removed, and current-user mode obtains a fresh home-domain TGT after its destructive cache tests. The script writes a color-coded summary, emits complete result objects with Verbose, and exits 0 only when every requested check succeeds; otherwise it exits 1.
 
-    Version 0.1.20261003.1
+    Version 1.0.20261003.2
 
 .NOTES
     See CHANGELOG.md for the complete version history.
@@ -127,7 +127,7 @@ param(
 )
 
 # Current script release shown at startup and maintained in the comment-based help history.
-$ScriptVersion = '0.1.20261003.1'
+$ScriptVersion = '1.0.20261003.2'
 # Convert non-terminating PowerShell errors into terminating errors handled by the surrounding code.
 $ErrorActionPreference = 'Stop'
 # Use the operating system's Kerberos command-line utility instead of relying on PATH resolution.
