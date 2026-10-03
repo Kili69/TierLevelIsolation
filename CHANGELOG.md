@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file. Historical entr
 
 ## [Unreleased]
 
+## [1.0.20261003.2] - 2026-10-03
+
 ### Added
 
 - Added a developer guide covering the repository architecture, script execution flows, configuration model, development process, versioning, validation, PowerShell Gallery publication, and automated release workflow. (cf83481)
